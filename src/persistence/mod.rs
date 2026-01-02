@@ -1,43 +1,83 @@
 use bevy::prelude::*;
-use async_trait::async_trait;
-use std::sync::Arc;
-use std::sync::Mutex;
+use big_space::GridCell;
+use std::collections::HashMap;
 
-// Data model for a discovery
+// --- Data Models ---
 #[derive(Debug, Clone)]
 pub struct Discovery {
-    pub system_id: u64,
     pub name: String,
     pub finder: String,
+    pub note: String, // Zen Note (max 140 chars)
+    pub date: String,
 }
 
-#[async_trait]
-pub trait DiscoveryRepository: Send + Sync {
-    async fn save_discovery(&self, discovery: Discovery) -> Result<(), String>;
-    async fn get_system_name(&self, system_id: u64) -> Result<Option<String>, String>;
+#[derive(Resource, Default)]
+pub struct CurrentSystemData {
+    pub cell: GridCell<i64>,
+    pub discovery: Option<Discovery>,
+    pub is_dirty: bool, // Trigger UI update
 }
 
-// Mock implementation for now
-pub struct MockRepository;
+#[derive(Resource, Default)]
+pub struct DiscoveryRepository {
+    // Key: (x, y, z) of GridCell
+    store: HashMap<(i64, i64, i64), Discovery>,
+}
 
-#[async_trait]
-impl DiscoveryRepository for MockRepository {
-    async fn save_discovery(&self, discovery: Discovery) -> Result<(), String> {
-        info!("(Mock) Persisting discovery: {:?}", discovery);
-        Ok(())
+impl DiscoveryRepository {
+    pub fn save(&mut self, cell: GridCell<i64>, name: String, finder: String, note: String) {
+        let key = (cell.x, cell.y, cell.z);
+        let discovery = Discovery {
+            name,
+            finder,
+            note,
+            date: "2026-01-02".to_string(), // In real app, use chrono
+        };
+        self.store.insert(key, discovery);
+        info!("Saved Discovery: {:?}", self.store.get(&key));
     }
-    
-    async fn get_system_name(&self, system_id: u64) -> Result<Option<String>, String> {
-        info!("(Mock) Fetching system name for {}", system_id);
-        Ok(None)
+
+    pub fn get(&self, cell: GridCell<i64>) -> Option<&Discovery> {
+        let key = (cell.x, cell.y, cell.z);
+        self.store.get(&key)
     }
+}
+
+#[derive(Resource, Default)]
+pub struct SpawnLocation {
+    pub cell: GridCell<i64>,
+    pub local_pos: Vec3,
+    pub has_spawned: bool,
 }
 
 pub struct PersistencePlugin;
 
 impl Plugin for PersistencePlugin {
     fn build(&self, app: &mut App) {
-        // In a real app we'd insert the repository as a Resource
-        // app.insert_resource(Arc::new(MockRepository) as Arc<dyn DiscoveryRepository>);
+        app.init_resource::<SpawnLocation>()
+           .init_resource::<DiscoveryRepository>()
+           .init_resource::<CurrentSystemData>()
+           .add_systems(Update, check_system_change);
+    }
+}
+
+use crate::player::camera::ZenCamera;
+
+// System to detect cell change and query registry
+fn check_system_change(
+    q_player: Query<&GridCell<i64>, (Changed<GridCell<i64>>, With<ZenCamera>)>,
+    repo: Res<DiscoveryRepository>,
+    mut current_data: ResMut<CurrentSystemData>,
+) {
+    if let Ok(cell) = q_player.get_single() {
+        info!("Entered System: {:?}", cell);
+        current_data.cell = *cell;
+        
+        if let Some(discovery) = repo.get(*cell) {
+            current_data.discovery = Some(discovery.clone());
+        } else {
+            current_data.discovery = None;
+        }
+        current_data.is_dirty = true;
     }
 }

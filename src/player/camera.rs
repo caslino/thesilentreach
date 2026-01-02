@@ -1,11 +1,15 @@
 use bevy::prelude::*;
 use big_space::{FloatingOrigin, GridCell, ReferenceFrame};
 use crate::player::input::VehicleInput;
-use crate::universe::Mass;
+use crate::player::prediction::AntiCollisionState;
+use crate::universe::physics::{GRAVITY_CONSTANT, GRID_SIZE, REPULSION_STRENGTH};
+use crate::universe::{Mass, Radius};
 
-const GRAVITY_CONSTANT: f32 = 50.0;
-const THRUST_POWER: f32 = 2500.0;
-const DAMPING_FACTOR: f32 = 0.99; // Less drag for deep space
+const SHIP_MASS: f32 = 1000.0; // kg
+const THRUST_FORCE: f32 = 750_000.0; // Newtons (F = ma => 750 m/s^2 accel)
+const DRAG_COEFFICIENT: f32 = 2.0;   // "Space Friction" / Inertial Dampeners
+const TURN_POWER: f32 = 0.8;     // Lower torque for heavier start
+const ROTATIONAL_DRAG: f32 = 0.5; // Lower drag to preserve momentum
 
 pub struct ZenCameraPlugin;
 
@@ -15,6 +19,9 @@ impl Plugin for ZenCameraPlugin {
            .add_systems(Update, (ship_controls, apply_gravity, physics_step).chain());
     }
 }
+
+#[derive(Component, Default)]
+pub struct AngularVelocity(pub Vec3); // Local angular velocity (Pitch, Yaw, Roll)
 
 #[derive(Component, Default)]
 pub struct Velocity(pub Vec3);
@@ -27,99 +34,221 @@ pub struct ZenCamera {
 impl Default for ZenCamera {
     fn default() -> Self {
         Self {
-            max_speed: 10000.0, // Higher max speed
+            max_speed: 10000.0,
         }
     }
 }
 
-fn setup_camera(mut commands: Commands, q_big_space: Query<Entity, With<ReferenceFrame<i64>>>) {
+use crate::persistence::SpawnLocation;
+use rand::Rng;
+
+#[derive(Component)]
+pub struct HeadCamera;
+
+fn setup_camera(
+    mut commands: Commands, 
+    q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
+    mut spawn_loc: ResMut<SpawnLocation>,
+) {
     let big_space_id = q_big_space.single();
     
+    // Generate Random Spawn if not set
+    if !spawn_loc.has_spawned {
+        let mut rng = rand::thread_rng();
+        let range = 20_000..40_000;
+        
+        let x = if rng.gen_bool(0.5) { rng.gen_range(range.clone()) } else { -rng.gen_range(range.clone()) };
+        let y = if rng.gen_bool(0.5) { rng.gen_range(range.clone()) } else { -rng.gen_range(range.clone()) };
+        let z = if rng.gen_bool(0.5) { rng.gen_range(range.clone()) } else { -rng.gen_range(range.clone()) };
+        
+        spawn_loc.cell = GridCell::new(x, y, z);
+        spawn_loc.local_pos = Vec3::new(0.0, 0.0, 2500.0); 
+        spawn_loc.has_spawned = true;
+        
+        info!("CRYO-AWAKENING: Spawned at {:?} (Safe Distance)", spawn_loc.cell);
+    }
+
     commands.entity(big_space_id).with_children(|parent| {
+        // --- 1. SHIP ROOT (Movement/Collision) ---
         parent.spawn((
-            Camera3d::default(),
-            Transform::from_xyz(0.0, 0.0, 1000.0).looking_at(Vec3::ZERO, Vec3::Y),
-            ZenCamera::default(),
+            Transform::from_translation(spawn_loc.local_pos).looking_at(Vec3::ZERO, Vec3::Y),
+            GlobalTransform::default(),
+            ZenCamera::default(), 
             Velocity(Vec3::ZERO),
-            GridCell::<i64>::default(),
+            AngularVelocity(Vec3::ZERO), // Added Angular Physics
+            Mass(SHIP_MASS), 
+            spawn_loc.cell,
             FloatingOrigin,
-        ));
+            Visibility::default(),
+        )).with_children(|ship| {
+            // ... Head Camera ...
+            ship.spawn((
+                Camera3d::default(),
+                HeadCamera,
+                Projection::from(PerspectiveProjection {
+                    far: 10_000_000.0,
+                    ..default()
+                }),
+                Transform::default(), 
+            ));
+        });
     });
 }
 
 fn ship_controls(
-    mut query: Query<(&mut Transform, &mut Velocity, &mut ZenCamera)>,
+    mut q_ship: Query<(&mut Transform, &mut Velocity, &mut AngularVelocity, &mut ZenCamera, &Children)>,
+    mut q_head: Query<(&mut Transform, &HeadCamera), Without<ZenCamera>>,
     input: Res<VehicleInput>,
+    acs: Res<AntiCollisionState>,
+    keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
 ) {
-    let (mut transform, mut velocity, _ship) = query.single_mut();
+    let Ok((mut ship_transform, mut ship_velocity, mut ship_ang_vel, _ship, children)) = q_ship.get_single_mut() else { return; };
     let dt = time.delta_secs();
+
+    // Find Head Camera Child Entity
+    let mut head_entity = None;
+    for child in children.iter() {
+        if q_head.get(*child).is_ok() {
+            head_entity = Some(*child);
+            break;
+        }
+    }
     
-    // 1. Steering (Pitch, Yaw, Roll)
-    let pitch_speed = 1.0;
-    let yaw_speed = 1.0;
-    let roll_speed = 2.0;
+    // --- CONTROL LOGIC ---
+    let is_look_mode = keys.pressed(KeyCode::KeyP);
 
-    // Apply rotation relative to local axes
-    let rotation_delta = Quat::from_euler(
-        EulerRot::XYZ,
-        input.pitch * pitch_speed * dt, // Pitch (Local X)
-        input.yaw * yaw_speed * dt,     // Yaw (Local Y)
-        input.roll * roll_speed * dt    // Roll (Local Z)
-    );
-    transform.rotation = transform.rotation * rotation_delta;
-    transform.rotation = transform.rotation.normalize();
+    if acs.is_active {
+        // ... (ACS Logic - simplified override for now)
+        // ACS needs to manipulate rotation directly or via torque?
+        // For safety, ACS overrides physics for instant correction typically, 
+        // but we can make it torque based later. keeping direct slerp for safety.
+        if acs.avoidance_vector != Vec3::ZERO {
+            let target_rot = ship_transform.looking_at(ship_transform.translation + acs.avoidance_vector, Vec3::Y).rotation;
+            ship_transform.rotation = ship_transform.rotation.slerp(target_rot, dt * 2.0);
+            ship_ang_vel.0 = Vec3::ZERO; // cancel spin
+        }
+        let forward = ship_transform.forward();
+        let thrust = forward * 1.0 * (THRUST_FORCE / SHIP_MASS) * dt; 
+        ship_velocity.0 += thrust;
 
-    // 2. Thrust (Throttle)
-    if input.throttle > 0.0 {
-        let forward = transform.forward();
-        let thrust = forward * input.throttle * THRUST_POWER * dt;
-        velocity.0 += thrust;
+    } else {
+        // --- 1. ROTATION (Torque Based) ---
+        if is_look_mode {
+            // ROTATE HEAD (Independent)
+             if let Some(entity) = head_entity {
+                if let Ok((mut head, _)) = q_head.get_mut(entity) {
+                    let rotation_delta = Quat::from_euler(
+                        EulerRot::XYZ,
+                        input.pitch * 2.0 * dt,
+                        input.yaw * 2.0 * dt,
+                        input.roll * 3.0 * dt
+                    );
+                    head.rotation = head.rotation * rotation_delta;
+                    head.rotation = head.rotation.normalize();
+                }
+            }
+        } else {
+            // ROTATE SHIP (Physics)
+            // Input adds Angular Acceleration (Torque/Inertia)
+            // PITCH (X), YAW (Y), ROLL (Z)
+            
+            let steer_torque = Vec3::new(input.pitch, input.yaw, input.roll) * TURN_POWER;
+            
+            // F = ma -> a = F/m
+            // Here TURN_POWER is effectively Peak Torque / Moment of Inertia
+            ship_ang_vel.0 += steer_torque * dt;
+
+            // Damping (Physics Step will also handle, but we can do input shaping here if needed)
+            
+            // Re-center Head
+             if let Some(entity) = head_entity {
+                if let Ok((mut head, _)) = q_head.get_mut(entity) {
+                    head.rotation = head.rotation.slerp(Quat::IDENTITY, dt * 5.0);
+                }
+            }
+        }
+
+        // --- 2. THRUST (F = ma -> a = F/m) ---
+        if input.throttle > 0.0 {
+            let forward = ship_transform.forward();
+            let accel = (input.throttle * THRUST_FORCE) / SHIP_MASS;
+            ship_velocity.0 += forward * accel * dt;
+        }
     }
 }
 
 fn apply_gravity(
     mut ship_query: Query<(&GridCell<i64>, &Transform, &mut Velocity), With<ZenCamera>>,
-    mass_query: Query<(&GridCell<i64>, &Transform, &Mass)>,
+    mass_query: Query<(&GridCell<i64>, &Transform, &Mass, &Radius)>,
     time: Res<Time>,
 ) {
     let Ok((ship_cell, ship_pos, mut ship_vel)) = ship_query.get_single_mut() else { return; };
     let dt = time.delta_secs();
 
-    for (body_cell, body_pos, mass) in mass_query.iter() {
-        // Calculate offset manually assuming 1M grid size
+    for (body_cell, body_pos, mass, radius) in mass_query.iter() {
         let cell_diff = *body_cell - *ship_cell;
         let large_diff = Vec3::new(
-             cell_diff.x as f32 * 1_000_000.0, 
-             cell_diff.y as f32 * 1_000_000.0,
-             cell_diff.z as f32 * 1_000_000.0,
-        );
+             cell_diff.x as f32 * GRID_SIZE, 
+             cell_diff.y as f32 * GRID_SIZE,
+             cell_diff.z as f32 * GRID_SIZE,
+         );
         
         let relative_pos = body_pos.translation - ship_pos.translation + large_diff;
-        
         let distance_sq = relative_pos.length_squared();
-        if distance_sq < 100.0 { continue; } // Avoid singularities
 
-        let distance = distance_sq.sqrt();
-        let direction = relative_pos / distance;
+        // 1. Gravity (Pull)
+        if distance_sq > 0.1 {
+            let distance = distance_sq.sqrt();
+            let direction = relative_pos / distance;
 
-        let force_mag = GRAVITY_CONSTANT * mass.0 / distance_sq;
-        let acceleration = direction * force_mag;
+            let gravity_force = GRAVITY_CONSTANT * mass.0 / distance_sq;
+            ship_vel.0 += direction * gravity_force * dt;
 
-        ship_vel.0 += acceleration * dt;
+            // 2. Surface Repulsion (Push) - "Crash Safety"
+            // Use Dynamic Radius + Margin (1.2x)
+            let safe_radius = radius.0 * 1.5;
+            
+            if distance < safe_radius {
+                // Exponential pushback to prevent collision
+                let overlap = safe_radius - distance;
+                // Stronger repulsion for larger bodies (stars)
+                let repulsion = -direction * overlap * REPULSION_STRENGTH * dt;
+                ship_vel.0 += repulsion;
+            }
+        }
     }
 }
 
 fn physics_step(
-    mut query: Query<(&mut Transform, &mut Velocity)>,
+    mut query: Query<(&mut Transform, &mut Velocity, &mut AngularVelocity, &Mass)>,
     time: Res<Time>,
 ) {
-    let (mut transform, mut velocity) = query.single_mut();
+    let (mut transform, mut velocity, mut ang_vel, _mass) = query.single_mut();
     let dt = time.delta_secs();
 
-    // Damping / Drag
-    velocity.0 *= DAMPING_FACTOR;
-
-    // Apply Velocity
+    // --- Linear Physics ---
+    // Mass-based Drag similar to air resistance / inertial dampers
+    // F_drag = -param * v
+    // We tune param to be "Game Feel Good"
+    let linear_drag = 1.2; 
+    let damping = (-linear_drag * dt).exp();
+    velocity.0 *= damping;
     transform.translation += velocity.0 * dt;
+    
+    // --- Angular Physics ---
+    // Apply Rotation
+    // Angular Velocity is in LOCAL SPACE (Pitch, Yaw, Roll)
+    // So we multiply rotation by the delta quaternion constructed from local axis
+    
+    if ang_vel.0.length_squared() > 0.000001 {
+        let delta_rot = Quat::from_scaled_axis(ang_vel.0 * dt);
+        transform.rotation = transform.rotation * delta_rot; // Right-multiply for local rotation
+        transform.rotation = transform.rotation.normalize();
+        
+        // Angular Damping
+        // Torque needs to fight this.
+        let ang_damping = (-ROTATIONAL_DRAG * dt).exp();
+        ang_vel.0 *= ang_damping;
+    }
 }

@@ -3,6 +3,8 @@ pub mod camera;
 pub mod prediction;
 pub mod ui;
 pub mod cockpit;
+pub mod navigation;
+pub mod audio;
 
 use bevy::prelude::*;
 
@@ -14,6 +16,8 @@ impl Plugin for PlayerPlugin {
            .add_plugins(camera::ZenCameraPlugin)
            .add_plugins(prediction::TrajectoryPlugin)
            .add_plugins(ui::HudPlugin)
-           .add_plugins(cockpit::CockpitPlugin);
+           .add_plugins(cockpit::CockpitPlugin)
+           .add_plugins(navigation::NavigationPlugin)
+           .add_plugins(audio::ZenAudioPlugin);
     }
 }
