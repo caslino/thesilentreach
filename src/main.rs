@@ -25,10 +25,10 @@ fn main() {
 
 fn check_gpu(adapter: Res<RenderAdapter>) {
     let info = adapter.get_info();
-    info!("--------------------------------------------------");
+    info!("---------------------SYSTEM INFO-----------------------------");
     info!("GPU ADAPTER: {}", info.name);
     info!("BACKEND: {:?}", info.backend);
     info!("DRIVER: {}", info.driver_info);
     info!("TYPE: {:?}", info.device_type);
-    info!("--------------------------------------------------");
+    info!("---------------------SYSTEM INFO-----------------------------");
 }
