@@ -14,7 +14,24 @@ impl Plugin for StarSystemSpawnerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpawnTracker>()
            .init_resource::<GalaxyMap>()
+           .init_resource::<CommonMeshes>()
            .add_systems(Update, (manage_galaxy_sectors, sync_universe_view, update_lod_scaling, despawn_distant_systems));
+    }
+}
+
+#[derive(Resource)]
+pub struct CommonMeshes {
+    pub unit_sphere_low: Handle<Mesh>,
+    pub unit_sphere_high: Handle<Mesh>,
+}
+
+impl FromWorld for CommonMeshes {
+    fn from_world(world: &mut World) -> Self {
+        let mut meshes = world.resource_mut::<Assets<Mesh>>();
+        CommonMeshes {
+            unit_sphere_low: meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap()),
+            unit_sphere_high: meshes.add(Sphere::new(1.0).mesh().ico(4).unwrap()),
+        }
     }
 }
 
@@ -144,7 +161,7 @@ fn sync_universe_view(
     galaxy_map: Res<GalaxyMap>,
     q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    common_meshes: Res<CommonMeshes>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
@@ -192,7 +209,7 @@ fn sync_universe_view(
                                 big_space_entity, 
                                 *cell, 
                                 star_data,
-                                &mut meshes, 
+                                &common_meshes,
                                 &mut materials
                             )
                         } else {
@@ -201,7 +218,7 @@ fn sync_universe_view(
                                 big_space_entity, 
                                 *cell, 
                                 star_data,
-                                &mut meshes, 
+                                &common_meshes,
                                 &mut materials
                             )
                         };
@@ -216,7 +233,7 @@ fn sync_universe_view(
 fn update_lod_scaling(
     q_camera: Query<(&GridCell<i64>, &Transform), With<FloatingOrigin>>,
     mut q_proxies: Query<(&GridCell<i64>, &mut Transform, &Children), (With<DistantProxy>, Without<FloatingOrigin>)>,
-    mut q_children: Query<&mut Transform, (With<MeshMaterial3d<StandardMaterial>>, Without<DistantProxy>, Without<FloatingOrigin>)>,
+    mut q_children: Query<(&mut Transform, Option<&Radius>), (With<MeshMaterial3d<StandardMaterial>>, Without<DistantProxy>, Without<FloatingOrigin>)>,
 ) {
     let Ok((cam_cell, cam_tf)) = q_camera.get_single() else { return; };
 
@@ -241,8 +258,9 @@ fn update_lod_scaling(
         
         // Apply scale to the visual child
         for child in children {
-            if let Ok(mut child_tf) = q_children.get_mut(*child) {
-                 child_tf.scale = Vec3::splat(scale);
+            if let Ok((mut child_tf, radius)) = q_children.get_mut(*child) {
+                 let base_scale = radius.map(|r| r.0).unwrap_or(1.0);
+                 child_tf.scale = Vec3::splat(scale * base_scale);
             }
         }
     }
@@ -284,7 +302,7 @@ fn spawn_proxy_with_data(
     parent_id: Entity,
     cell: GridCell<i64>,
     data: &StarData,
-    meshes: &mut ResMut<Assets<Mesh>>,
+    common_meshes: &Res<CommonMeshes>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) -> Entity {
     let root = commands.spawn((
@@ -298,13 +316,14 @@ fn spawn_proxy_with_data(
 
     commands.entity(root).with_children(|parent| {
         parent.spawn((
-            Mesh3d(meshes.add(Sphere::new(data.size).mesh().ico(3).unwrap())),
+            Mesh3d(common_meshes.unit_sphere_low.clone()),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: data.color,
                 emissive: LinearRgba::from(data.color) * 15.0, 
                 unlit: true,
                 ..default()
             })),
+            Radius(data.size),
             Transform::IDENTITY.with_scale(Vec3::ZERO), 
         ));
     });
@@ -317,7 +336,7 @@ fn spawn_star_with_data(
     parent_id: Entity,
     cell: GridCell<i64>,
     data: &StarData,
-    meshes: &mut ResMut<Assets<Mesh>>,
+    common_meshes: &Res<CommonMeshes>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) -> Entity {
     let system_root = commands.spawn((
@@ -331,7 +350,7 @@ fn spawn_star_with_data(
     commands.entity(system_root).with_children(|root| {
         // Star Sphere
         root.spawn((
-            Mesh3d(meshes.add(Sphere::new(data.size).mesh().ico(4).unwrap())),
+            Mesh3d(common_meshes.unit_sphere_high.clone()),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: data.color,
                 emissive: LinearRgba::from(data.color) * 5.0,
@@ -339,7 +358,7 @@ fn spawn_star_with_data(
             })),
             Mass(1_000_000.0), 
             Radius(data.size), 
-            Transform::IDENTITY,
+            Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
         )).with_children(|star| {
              // Light
              star.spawn(PointLight {
@@ -367,11 +386,11 @@ fn spawn_star_with_data(
             let z = dist * angle.sin();
 
             root.spawn((
-                Mesh3d(meshes.add(Sphere::new(planet_size).mesh().ico(3).unwrap())),
+                Mesh3d(common_meshes.unit_sphere_low.clone()),
                 MeshMaterial3d(materials.add(StandardMaterial::from(planet_color))),
                 Mass(10_000.0), 
                 Radius(planet_size),
-                Transform::from_xyz(x, 0.0, z),
+                Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
             ));
         }
     });
