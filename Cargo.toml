@@ -14,4 +14,10 @@ async-trait = "0.1"
 tracing-appender = "0.2.4"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 rusqlite = { version = "0.38.0", features = ["bundled"] }
+futures-lite = "2.6.1"
 
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use big_space::{GridCell, ReferenceFrame, FloatingOrigin};
-use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet};
+use crate::universe::materials::{StarMaterial, PlanetMaterial};
+use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet, StarDetails, PlanetDetails, PlanetType, SectorIndex, SECTOR_SIZE};
 use crate::persistence::Database; // Import DB
 
 use crate::universe::physics::GRID_SIZE;
@@ -9,6 +10,8 @@ use rand::rngs::StdRng;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use bevy::tasks::{AsyncComputeTaskPool, Task};
+use futures_lite::future;
 
 pub struct StarSystemSpawnerPlugin;
 
@@ -17,7 +20,8 @@ impl Plugin for StarSystemSpawnerPlugin {
         app.init_resource::<SpawnTracker>()
            .init_resource::<GalaxyMap>()
            .init_resource::<CommonMeshes>()
-           .add_systems(Update, (manage_galaxy_sectors, sync_universe_view, update_lod_scaling, despawn_distant_systems));
+           .init_resource::<SectorTaskTracker>()
+           .add_systems(Update, (manage_galaxy_sectors, handle_generation_tasks, sync_universe_view, update_lod_scaling, despawn_distant_systems));
     }
 }
 
@@ -38,54 +42,44 @@ impl FromWorld for CommonMeshes {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum LodLevel {
+pub enum LodLevel {
     Proxy,
     Full,
 }
 
 #[derive(Resource, Default)]
-struct SpawnTracker {
-    spawned_cells: HashMap<GridCell<i64>, (Entity, LodLevel)>,
+pub struct SpawnTracker {
+    pub spawned_cells: HashMap<GridCell<i64>, (Entity, LodLevel)>,
 }
 
-#[derive(Clone, Debug)]
-struct StarData {
-    color: Color,
-    size: f32,
-}
+// StarData moved to mod.rs
 
 // 10x10x10 GridCells per Sector
-const SECTOR_SIZE: i64 = 10; 
+// SECTOR_SIZE moved to mod.rs 
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct SectorIndex {
-    x: i64,
-    y: i64,
-    z: i64,
-}
+// PlanetType moved to mod.rs 
 
-impl SectorIndex {
-    fn from_cell(cell: GridCell<i64>) -> Self {
-        Self {
-            x: cell.x.div_euclid(SECTOR_SIZE),
-            y: cell.y.div_euclid(SECTOR_SIZE),
-            z: cell.z.div_euclid(SECTOR_SIZE),
-        }
-    }
-}
+// SectorIndex moved to mod.rs
 
 #[derive(Resource, Default)]
 struct GalaxyMap {
     // Map Sector -> List of Stars in that sector
-    sectors: HashMap<SectorIndex, Vec<(GridCell<i64>, StarData)>>,
+    sectors: HashMap<SectorIndex, Vec<(GridCell<i64>, StarDetails)>>,
+}
+
+#[derive(Resource, Default)]
+struct SectorTaskTracker {
+    tasks: HashMap<SectorIndex, Task<(SectorIndex, Vec<(GridCell<i64>, StarDetails)>)>>,
 }
 
 #[derive(Component)]
 struct DistantProxy;
 
 fn manage_galaxy_sectors(
-    mut galaxy_map: ResMut<GalaxyMap>,
+    galaxy_map: Res<GalaxyMap>,
+    mut task_tracker: ResMut<SectorTaskTracker>, // Track tasks
     seed: Res<UniverseSeed>,
+    db: Res<Database>,
     q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
@@ -93,6 +87,10 @@ fn manage_galaxy_sectors(
     // Check current sector + Neighbors
     let center_sector = SectorIndex::from_cell(*camera_cell);
     let view_dist = 1; // 3x3x3 sectors
+    let seed_val = *seed; // Copy seed
+
+    // Clone DB for async task usage
+    let db_clone = db.clone();
 
     for x in -view_dist..=view_dist {
         for y in -view_dist..=view_dist {
@@ -103,19 +101,53 @@ fn manage_galaxy_sectors(
                     z: center_sector.z + z,
                 };
 
-                if !galaxy_map.sectors.contains_key(&sector_idx) {
-                    generate_sector(&mut galaxy_map, sector_idx, &seed);
+                // If not in map AND not currently generating
+                if !galaxy_map.sectors.contains_key(&sector_idx) && !task_tracker.tasks.contains_key(&sector_idx) {
+                    let thread_pool = AsyncComputeTaskPool::get();
+                    let db_for_task = db_clone.clone(); 
+                    
+                    let task = thread_pool.spawn(async move {
+                        let data = generate_sector_data(sector_idx, seed_val, &db_for_task);
+                        (sector_idx, data)
+                    });
+                    task_tracker.tasks.insert(sector_idx, task);
                 }
             }
         }
     }
 }
 
-fn generate_sector(
-    galaxy_map: &mut GalaxyMap, 
-    sector: SectorIndex, 
-    seed: &UniverseSeed
+fn handle_generation_tasks(
+    mut galaxy_map: ResMut<GalaxyMap>,
+    mut task_tracker: ResMut<SectorTaskTracker>,
 ) {
+    let mut completed = Vec::new();
+    
+    for (_sector, task) in task_tracker.tasks.iter_mut() {
+        if let Some(result) = future::block_on(future::poll_once(task)) {
+            completed.push(result);
+        }
+    }
+
+    for (sector, stars) in completed {
+        galaxy_map.sectors.insert(sector, stars);
+        task_tracker.tasks.remove(&sector);
+        // info!("Generatated Sector (Async) {:?}, stars: {}", sector, galaxy_map.sectors.get(&sector).unwrap().len());
+    }
+}
+
+fn generate_sector_data(
+    sector: SectorIndex, 
+    seed: UniverseSeed,
+    db: &Database
+) -> Vec<(GridCell<i64>, StarDetails)> {
+    // 1. Check Database
+    if let Ok(Some(data)) = db.get_sector_data(sector) {
+         // info!("Loaded Sector {:?} from persistence.", sector);
+         return data;
+    }
+
+    // 2. Generate
     let mut stars = Vec::new();
     
     let start_x = sector.x * SECTOR_SIZE;
@@ -146,14 +178,20 @@ fn generate_sector(
 
                 if rng.gen_bool(density_chance) {
                     let (color, size) = generate_star_params(&mut rng);
-                    stars.push((cell, StarData { color, size }));
+                    stars.push((cell, StarDetails { color, size }));
                 }
             }
         }
     }
 
-    galaxy_map.sectors.insert(sector, stars);
-    // info!("Generated Sector {:?}, stars: {}", sector, galaxy_map.sectors.get(&sector).unwrap().len());
+
+
+    // 3. Save to Database
+    if let Err(e) = db.save_sector_data(sector, &stars) {
+        error!("Failed to save sector data: {}", e);
+    }
+
+    stars
 }
 
 
@@ -164,7 +202,9 @@ fn sync_universe_view(
     q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
     common_meshes: Res<CommonMeshes>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut std_materials: ResMut<Assets<StandardMaterial>>, // For Proxy
+    mut star_materials: ResMut<Assets<StarMaterial>>, // For Full Star
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>, // For Full Planet
     db: Res<Database>, // Add DB resource
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
@@ -213,7 +253,8 @@ fn sync_universe_view(
                                 *cell, 
                                 star_data,
                                 &common_meshes,
-                                &mut materials,
+                                &mut star_materials,
+                                &mut planet_materials,
                                 &db
                             )
                         } else {
@@ -223,7 +264,7 @@ fn sync_universe_view(
                                 *cell, 
                                 star_data,
                                 &common_meshes,
-                                &mut materials
+                                &mut std_materials
                             )
                         };
                         tracker.spawned_cells.insert(*cell, (new_entity, required_lod));
@@ -311,7 +352,7 @@ fn spawn_proxy_with_data(
     commands: &mut Commands,
     parent_id: Entity,
     cell: GridCell<i64>,
-    data: &StarData,
+    data: &StarDetails,
     common_meshes: &Res<CommonMeshes>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) -> Entity {
@@ -348,9 +389,10 @@ fn spawn_star_with_data(
     commands: &mut Commands,
     parent_id: Entity,
     cell: GridCell<i64>,
-    data: &StarData,
+    data: &StarDetails,
     common_meshes: &Res<CommonMeshes>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    star_materials: &mut ResMut<Assets<StarMaterial>>,
+    planet_materials: &mut ResMut<Assets<PlanetMaterial>>,
     db: &Database,
 ) -> Entity {
     // Determine Names
@@ -379,14 +421,14 @@ fn spawn_star_with_data(
         // Star Sphere
         root.spawn((
             Mesh3d(common_meshes.unit_sphere_high.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: data.color,
-                emissive: LinearRgba::from(data.color) * 5.0,
-                ..default()
+            MeshMaterial3d(star_materials.add(StarMaterial {
+                color: LinearRgba::from(data.color),
+                seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456, // Simple Seed
             })),
             Mass(1_000_000.0), 
             Radius(data.size), 
             Star,
+            StarDetails { color: data.color, size: data.size },
             Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
         ))
         .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {
@@ -424,17 +466,25 @@ fn spawn_star_with_data(
             let dist = rng.gen_range(500.0..5000.0) + data.size;
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
             let planet_size = rng.gen_range(10.0..40.0);
-            let planet_color = Color::srgb(rng.r#gen::<f32>(), rng.r#gen::<f32>(), rng.r#gen::<f32>());
+            
+            let planet_seed = dist * 0.123 + angle;
+            let p_type = PlanetType::from_seed(planet_seed);
+            let (col1, col2) = p_type.get_palette();
 
             let x = dist * angle.cos();
             let z = dist * angle.sin();
 
             root.spawn((
                 Mesh3d(common_meshes.unit_sphere_low.clone()),
-                MeshMaterial3d(materials.add(StandardMaterial::from(planet_color))),
+                MeshMaterial3d(planet_materials.add(PlanetMaterial {
+                     base_color: col1,
+                     second_color: col2,
+                     seed: planet_seed,
+                })),
                 Mass(10_000.0), 
                 Radius(planet_size),
                 Planet,
+                PlanetDetails(p_type),
                 Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
             ))
             .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {

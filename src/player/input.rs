@@ -20,19 +20,82 @@ pub struct VehicleInput {
 fn update_vehicle_input(
     mut input: ResMut<VehicleInput>,
     keys: Res<ButtonInput<KeyCode>>,
+    touches: Res<Touches>,
+    windows: Query<&Window>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
 
+    // --- 0. TOUCH CONTROLS (iOS) ---
+    // If any touch is active, we use touch logic.
+    // Left Half: Throttle (Y) + Roll (X) [Sticky]
+    // Right Half: Pitch (Y) + Yaw (X) [Steering]
+    
+    // We only process touches if they exist, otherwise fallback to Keyboard
+    let mut touch_active = false;
+    
+    // Safely get window for touch calculation
+    if let Ok(window) = windows.get_single() {
+        let width = window.width();
+        let center_x = width / 2.0;
+    
+        for touch in touches.iter() {
+            touch_active = true;
+            let pos = touch.position();
+            
+            // SENSITIVITY
+            let touch_sensitivity = 0.005; 
+    
+            if pos.x < center_x {
+                // LEFT ZONE: Throttle & Roll
+                if let Some(delta) = touches.get_pressed(touch.id()).map(|t| t.delta()) {
+                    input.throttle = (input.throttle - delta.y * touch_sensitivity).clamp(-1.0, 1.0);
+                    input.roll = (input.roll + delta.x * touch_sensitivity).clamp(-1.0, 1.0);
+                }
+            } else {
+                 // RIGHT ZONE: Pitch & Yaw (Stick)
+                 if let Some(delta) = touches.get_pressed(touch.id()).map(|t| t.delta()) {
+                     input.pitch = (input.pitch + delta.y * touch_sensitivity * 10.0).clamp(-1.0, 1.0);
+                     input.yaw = (input.yaw - delta.x * touch_sensitivity * 10.0).clamp(-1.0, 1.0);
+                 }
+            }
+        }
+        
+        // Spring Back (Touch)
+        let mut left_active = false;
+        let mut right_active = false;
+        for touch in touches.iter() {
+            if touch.position().x < center_x { left_active = true; } else { right_active = true; }
+        }
+        
+        if touch_active {
+             if !left_active {
+                 input.roll = lerp(input.roll, 0.0, dt * 5.0);
+             }
+             if !right_active {
+                 input.pitch = lerp(input.pitch, 0.0, dt * 5.0);
+                 input.yaw = lerp(input.yaw, 0.0, dt * 5.0);
+             }
+             return; // Skip Keyboard if using Touch (prevents conflict)
+        }
+    }
+
+    // --- KEYBOARD CONTROLS (Fallback) ---
     // 1. Throttle (Incremental, Sticky)
     // Up Arrow: Increase
     // Down Arrow: Decrease
+    // Space: Brake (Cut Throttle)
     let throttle_sensitivity = 0.5; // Takes 2 seconds to go 0->1
-    if keys.pressed(KeyCode::ArrowUp) {
-        input.throttle = (input.throttle + throttle_sensitivity * dt).min(1.0);
-    }
-    if keys.pressed(KeyCode::ArrowDown) {
-        input.throttle = (input.throttle - throttle_sensitivity * dt).max(-1.0);
+    
+    if keys.just_pressed(KeyCode::Space) {
+        input.throttle = 0.0;
+    } else {
+        if keys.pressed(KeyCode::ArrowUp) {
+            input.throttle = (input.throttle + throttle_sensitivity * dt).min(1.0);
+        }
+        if keys.pressed(KeyCode::ArrowDown) {
+            input.throttle = (input.throttle - throttle_sensitivity * dt).max(-1.0);
+        }
     }
 
     // 2. Pitch (W/S) - Spring Back
@@ -45,10 +108,10 @@ fn update_vehicle_input(
     };
     input.pitch = lerp(input.pitch, target_pitch, dt * 10.0); // Fast response
 
-    // 3. Yaw (A/D) - Spring Back
-    let target_yaw = if keys.pressed(KeyCode::KeyA) {
+    // 3. Yaw (A/D OR Left/Right Arrows) - Spring Back
+    let target_yaw = if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
         1.0 // Turn Left
-    } else if keys.pressed(KeyCode::KeyD) {
+    } else if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
         -1.0 // Turn Right
     } else {
         0.0

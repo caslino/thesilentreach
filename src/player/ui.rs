@@ -7,13 +7,15 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
+
         app.add_systems(Startup, setup_hud)
-           .add_systems(Update, update_hud);
+           .add_systems(Update, (update_hud, system_saved_toast_system));
     }
 }
 
 use crate::player::prediction::AntiCollisionState;
 use crate::player::navigation::NavigationClues;
+use crate::universe::SystemSavedEvent; // Import Event
 
 #[derive(Component)]
 struct ThrottleText;
@@ -29,6 +31,11 @@ struct NavText;
 
 #[derive(Component)]
 struct FpsText;
+
+#[derive(Component)]
+struct SavedToastText {
+    timer: Timer,
+}
 
 fn setup_hud(mut commands: Commands) {
     commands.spawn((
@@ -97,11 +104,28 @@ fn setup_hud(mut commands: Commands) {
         TextColor(Color::srgb(0.0, 1.0, 0.0)), // Bright Green
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            right: Val::Px(10.0),
+            bottom: Val::Px(20.0),
+            right: Val::Px(20.0),
             ..default()
         },
         FpsText,
+    ));
+
+    
+    // Saved Toast (Hidden by default)
+    commands.spawn((
+        Text::new("SYSTEM DATA SAVED"),
+        TextFont { font_size: 24.0, ..default() },
+        TextColor(Color::srgb(0.2, 1.0, 0.2)), // Bright Green
+        Node {
+             position_type: PositionType::Absolute,
+             top: Val::Percent(15.0),
+             left: Val::Percent(50.0), // Centered horizontally
+             margin: UiRect::left(Val::Px(-100.0)), // Offset by half width approx
+             ..default()
+        },
+        Visibility::Hidden,
+        SavedToastText { timer: Timer::from_seconds(3.0, TimerMode::Once) },
     ));
 }
 
@@ -113,10 +137,12 @@ fn update_hud(
     mut q_throttle: Query<&mut Text, (With<ThrottleText>, Without<SpeedText>, Without<AntiCollisionText>, Without<NavText>, Without<FpsText>)>,
     mut q_speed: Query<&mut Text, (With<SpeedText>, Without<ThrottleText>, Without<AntiCollisionText>, Without<NavText>, Without<FpsText>)>,
     mut q_warning: Query<&mut Visibility, With<AntiCollisionText>>,
-    mut q_nav: Query<&mut Text, (With<NavText>, Without<FpsText>)>,
+    mut q_nav: Query<(&mut Text, &mut Visibility), (With<NavText>, Without<FpsText>, Without<AntiCollisionText>)>, // Added Visibility + Without
     mut q_fps: Query<&mut Text, With<FpsText>>,
     diagnostics: Res<DiagnosticsStore>,
     time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>, // For Toggle
+    mut nav_visible: Local<bool>, // Local State
 ) {
     // ... Existing Throttle/Speed/ACS updates ...
     if let Ok(mut text) = q_throttle.get_single_mut() {
@@ -138,23 +164,33 @@ fn update_hud(
         }
     }
     
+    // Toggle Nav
+    if keys.just_pressed(KeyCode::KeyH) {
+        *nav_visible = !*nav_visible;
+    }
+
     // Update Navigation UI
-    if let Ok(mut text) = q_nav.get_single_mut() {
-        let age = time.elapsed_secs();
-        if age < 5.0 {
-             text.0 = format!("CRYO-STASIS DISENGAGED.\nSYSTEM SCANNING... {:.0}%", age * 20.0);
+    if let Ok((mut text, mut vis)) = q_nav.get_single_mut() {
+        if *nav_visible {
+            *vis = Visibility::Visible;
+            let age = time.elapsed_secs();
+            if age < 5.0 {
+                 text.0 = format!("CRYO-STASIS DISENGAGED.\nSYSTEM SCANNING... {:.0}%", age * 20.0);
+            } else {
+                 let vec = nav_clues.vector_to_origin;
+                 let heading_str = format!("Heading to Core: [{:.2}, {:.2}, {:.2}]", vec.x, vec.y, vec.z);
+                 
+                 let mut signal_str = String::from("\nPulsar Signals:\n");
+                 for (i, (strength, _freq)) in nav_clues.pulsar_signals.iter().enumerate() {
+                     let bars = (*strength * 10.0) as usize;
+                     let bar_vis: String = std::iter::repeat('|').take(bars).collect();
+                     signal_str.push_str(&format!("P{}: [{:<10}] {:.3}\n", i+1, bar_vis, strength));
+                 }
+                 
+                 text.0 = format!("{}\n{}", heading_str, signal_str);
+            }
         } else {
-             let vec = nav_clues.vector_to_origin;
-             let heading_str = format!("Heading to Core: [{:.2}, {:.2}, {:.2}]", vec.x, vec.y, vec.z);
-             
-             let mut signal_str = String::from("\nPulsar Signals:\n");
-             for (i, (strength, _freq)) in nav_clues.pulsar_signals.iter().enumerate() {
-                 let bars = (*strength * 10.0) as usize;
-                 let bar_vis: String = std::iter::repeat('|').take(bars).collect();
-                 signal_str.push_str(&format!("P{}: [{:<10}] {:.3}\n", i+1, bar_vis, strength));
-             }
-             
-             text.0 = format!("{}\n{}", heading_str, signal_str);
+            *vis = Visibility::Hidden;
         }
     }
 
@@ -171,4 +207,26 @@ fn update_hud(
 // --- DISCOVERY UI REMOVED ---
 // use crate::persistence::{CurrentSystemData, Database};
 
-// Old Discovery UI Systems Removed
+// --- TOAST SYSTEM ---
+fn system_saved_toast_system(
+    mut events: EventReader<SystemSavedEvent>,
+    mut q_toast: Query<(&mut Visibility, &mut SavedToastText, &mut Text)>,
+    time: Res<Time>,
+) {
+    if let Ok((mut vis, mut toast, mut text)) = q_toast.get_single_mut() {
+        // Trigger
+        for ev in events.read() {
+            *vis = Visibility::Visible;
+            toast.timer.reset();
+            text.0 = format!("SYSTEM DATA SAVED: {}", ev.name);
+        }
+        
+        // Update Timer
+        if *vis == Visibility::Visible {
+            toast.timer.tick(time.delta());
+            if toast.timer.finished() {
+                *vis = Visibility::Hidden;
+            }
+        }
+    }
+}

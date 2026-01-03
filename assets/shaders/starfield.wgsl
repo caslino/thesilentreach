@@ -36,7 +36,7 @@ fn fbm(p: vec3<f32>) -> f32 {
     var v = 0.0;
     var a = 0.5;
     var x = p;
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < 3; i++) {
         v += a * noise(x);
         x = x * 2.0;
         a *= 0.5;

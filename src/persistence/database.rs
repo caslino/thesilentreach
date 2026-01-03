@@ -2,6 +2,17 @@ use rusqlite::{Connection, Result, params};
 use big_space::GridCell;
 use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
+use crate::universe::{SectorIndex, StarDetails};
+use serde::{Serialize, Deserialize};
+use serde_json;
+
+#[derive(Serialize, Deserialize)]
+struct SavedStar {
+    x: i64,
+    y: i64,
+    z: i64,
+    details: StarDetails,
+}
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredWorld {
@@ -59,6 +70,18 @@ impl Database {
             [],
         )?;
 
+        // Sectors Table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sectors (
+                x INTEGER NOT NULL,
+                y INTEGER NOT NULL,
+                z INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY(x, y, z)
+            )",
+            [],
+        )?;
+
         // Player State Table (Single Row)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS player_state (
@@ -80,6 +103,48 @@ impl Database {
         Ok(Database {
             conn: Arc::new(Mutex::new(conn)),
         })
+    }
+
+
+    pub fn save_sector_data(&self, sector: SectorIndex, data: &Vec<(GridCell<i64>, StarDetails)>) -> Result<()> {
+         let conn = self.conn.lock().unwrap();
+         
+         // Convert to Serializable format
+         let saved_data: Vec<SavedStar> = data.iter().map(|(cell, details)| SavedStar {
+             x: cell.x,
+             y: cell.y,
+             z: cell.z,
+             details: details.clone(),
+         }).collect();
+
+         // Serialize data
+         let json_data = serde_json::to_string(&saved_data).unwrap_or_default();
+         
+         conn.execute(
+             "INSERT OR REPLACE INTO sectors (x, y, z, data) VALUES (?1, ?2, ?3, ?4)",
+             params![sector.x, sector.y, sector.z, json_data],
+         )?;
+         Ok(())
+    }
+
+    pub fn get_sector_data(&self, sector: SectorIndex) -> Result<Option<Vec<(GridCell<i64>, StarDetails)>>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT data FROM sectors WHERE x = ?1 AND y = ?2 AND z = ?3")?;
+        
+        let mut rows = stmt.query(params![sector.x, sector.y, sector.z])?;
+        
+        if let Some(row) = rows.next()? {
+            let json_data: String = row.get(0)?;
+            if let Ok(saved_data) = serde_json::from_str::<Vec<SavedStar>>(&json_data) {
+                // Convert back
+                let data = saved_data.into_iter().map(|s| (
+                    GridCell::new(s.x, s.y, s.z),
+                    s.details
+                )).collect();
+                return Ok(Some(data));
+            }
+        }
+        Ok(None)
     }
 
     pub fn save_player_state(&self, state: &PlayerState) -> Result<()> {

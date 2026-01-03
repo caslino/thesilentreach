@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::persistence::{Database, CurrentSystemData};
+use crate::player::interaction::ConsoleState;
 
 pub struct StarMapPlugin;
 
@@ -67,7 +68,10 @@ fn setup_starmap(mut commands: Commands) {
 fn toggle_starmap(
     keys: Res<ButtonInput<KeyCode>>,
     mut q_root: Query<&mut Visibility, With<StarMapRoot>>,
+    console_state: Res<ConsoleState>,
 ) {
+    if console_state.active { return; }
+    
     if keys.just_pressed(KeyCode::KeyM) {
         if let Ok(mut vis) = q_root.get_single_mut() {
             *vis = match *vis {

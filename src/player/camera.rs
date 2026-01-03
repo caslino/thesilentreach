@@ -15,8 +15,9 @@ pub struct ZenCameraPlugin;
 
 impl Plugin for ZenCameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_camera)
-           .add_systems(Update, (ship_controls, apply_gravity, physics_step).chain());
+        app.insert_resource(Time::<Fixed>::from_hz(60.0)) // Target 60Hz Physics
+           .add_systems(Startup, setup_camera)
+           .add_systems(FixedUpdate, (ship_controls, apply_gravity, physics_step).chain());
     }
 }
 
