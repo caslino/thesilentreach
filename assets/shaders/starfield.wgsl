@@ -15,8 +15,9 @@ fn hash3(p: vec3<f32>) -> f32 {
 }
 
 // 3D Simplex Noise (simplified for Nebulae)
+// Cheaper hash (no sin)
 fn random(v: vec3<f32>) -> f32 {
-    return fract(sin(dot(v, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
+    return hash3(v);
 }
 
 fn noise(x: vec3<f32>) -> f32 {
@@ -36,7 +37,7 @@ fn fbm(p: vec3<f32>) -> f32 {
     var v = 0.0;
     var a = 0.5;
     var x = p;
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
         v += a * noise(x);
         x = x * 2.0;
         a *= 0.5;
