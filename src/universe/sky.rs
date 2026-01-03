@@ -18,6 +18,9 @@ pub struct StarfieldMaterial {
     pub galactic_pos: Vec3,
     #[uniform(0)]
     pub time: f32,
+    #[texture(1)]
+    #[sampler(2)]
+    pub noise_texture: Handle<Image>,
 }
 
 impl Material for StarfieldMaterial {
@@ -47,15 +50,19 @@ fn spawn_sky_sphere(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StarfieldMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     q_ship: Query<Entity, (With<FloatingOrigin>, Without<SkySphere>)>,
 ) {
     if let Ok(ship_entity) = q_ship.get_single() {
+         let noise_map = generate_noise_texture(&mut images);
+
          commands.entity(ship_entity).with_children(|parent| {
             parent.spawn((
                 Mesh3d(meshes.add(Sphere::new(50_000.0).mesh().ico(3).unwrap())), // Huge radius
                 MeshMaterial3d(materials.add(StarfieldMaterial {
                     galactic_pos: Vec3::ZERO,
                     time: 0.0,
+                    noise_texture: noise_map,
                 })),
                 SkySphere,
             ));
@@ -63,6 +70,81 @@ fn spawn_sky_sphere(
     }
 }
 
+// Simple CPU Noise Generation (Baking)
+fn generate_noise_texture(images: &mut Assets<Image>) -> Handle<Image> {
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    // Image is already in prelude
+
+    let size = 256;
+    let mut pixels = Vec::with_capacity(size * size * 4);
+    
+    // Simple noise filling
+    for y in 0..size {
+        for x in 0..size {
+            // Use simple fract/sin hash to generate deterministic noise
+            let px = x as f32;
+            let py = y as f32;
+            
+            // Scaled coords
+            let s = 0.05; 
+            let mut val = 0.0;
+            
+            // 3 Octaves of Value Noise (Simulated)
+            val += pseudo_noise(px * s, py * s) * 0.5;
+            val += pseudo_noise(px * s * 2.0, py * s * 2.0) * 0.25;
+            val += pseudo_noise(px * s * 4.0, py * s * 4.0) * 0.125;
+            
+            // Normalize
+            val = val / 0.875;
+            
+            let v = (val * 255.0) as u8;
+            pixels.extend_from_slice(&[v, v, v, 255]); // RGBA
+        }
+    }
+
+    let image = Image::new(
+        Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD, 
+    );
+    
+    images.add(image)
+}
+
+fn pseudo_noise(x: f32, y: f32) -> f32 {
+   let i = x.floor();
+   let j = y.floor();
+   let f_x = x.fract();
+   let f_y = y.fract();
+   
+   // Hash corners
+   let a = hash_2d(i, j);
+   let b = hash_2d(i + 1.0, j);
+   let c = hash_2d(i, j + 1.0);
+   let d = hash_2d(i + 1.0, j + 1.0);
+   
+   // Bilinear Interpolation
+   let u_x = f_x * f_x * (3.0 - 2.0 * f_x);
+   let u_y = f_y * f_y * (3.0 - 2.0 * f_y);
+   
+   let h1 = a + (b - a) * u_x;
+   let h2 = c + (d - c) * u_x;
+   
+   h1 + (h2 - h1) * u_y
+}
+
+fn hash_2d(x: f32, y: f32) -> f32 {
+    let k = ((x * 12.9898 + y * 78.233).sin() * 43758.5453).fract();
+    k
+}
+
+// Start of Update System
 fn update_sky_position(
     q_camera: Query<(&GridCell<i64>, &Transform), With<FloatingOrigin>>,
     mut materials: ResMut<Assets<StarfieldMaterial>>,
