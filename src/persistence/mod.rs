@@ -97,6 +97,18 @@ fn load_player_state(
                      final_vel = rot * velocity;
                      
                      info!("PERSISTENCE: Applied Orbital Catch-up. Angle: {:.2} rads", angle);
+                     
+                     // Orbital Decay (Simulate drag/tidal forces)
+                     // Decay by 0.1% per hour? 
+                     // drift_time is seconds. 1 hour = 3600s.
+                     // Let's do a very small linear decay or exponential.
+                     // decay_factor = 1.0 - (drift_time * 0.000001); // 1e-6 per second
+                     
+                     let decay_rate = 0.0000005; // Very subtle decay
+                     let decay_factor = (1.0 - decay_rate * drift_time).max(0.90); // Cap at 10% loss per session for safety
+                     
+                     final_pos *= decay_factor;
+                     
                  } else {
                      // Straight line fallback
                       final_pos += velocity * drift_time;
