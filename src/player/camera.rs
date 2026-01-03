@@ -85,6 +85,8 @@ fn setup_camera(
             ship.spawn((
                 Camera3d::default(),
                 HeadCamera,
+                bevy::core_pipeline::bloom::Bloom::NATURAL, // Enable Bloom
+                bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Better exposure
                 Projection::from(PerspectiveProjection {
                     far: 10_000_000.0,
                     ..default()
@@ -195,6 +197,15 @@ fn apply_gravity(
     let Ok((ship_cell, ship_pos, mut ship_vel)) = ship_query.get_single_mut() else { return; };
     let dt = time.delta_secs();
 
+    struct GravitySource {
+        vec: Vec3,
+        dist_sq: f32,
+        mass: f32,
+        radius: f32,
+    }
+
+    let mut sources: Vec<GravitySource> = Vec::new();
+
     for (body_cell, body_pos, mass, radius) in mass_query.iter() {
         let cell_diff = *body_cell - *ship_cell;
         let large_diff = Vec3::new(
@@ -206,25 +217,34 @@ fn apply_gravity(
         let relative_pos = body_pos.translation - ship_pos.translation + large_diff;
         let distance_sq = relative_pos.length_squared();
 
-        // 1. Gravity (Pull)
         if distance_sq > 0.1 {
-            let distance = distance_sq.sqrt();
-            let direction = relative_pos / distance;
+            sources.push(GravitySource {
+                vec: relative_pos,
+                dist_sq: distance_sq,
+                mass: mass.0,
+                radius: radius.0,
+            });
+        }
+    }
 
-            let gravity_force = GRAVITY_CONSTANT * mass.0 / distance_sq;
-            ship_vel.0 += direction * gravity_force * dt;
+    // Optimization: SOI (Sphere of Influence) - Only 3 nearest bodies
+    // Sort by distance (ascending)
+    sources.sort_by(|a, b| a.dist_sq.partial_cmp(&b.dist_sq).unwrap_or(std::cmp::Ordering::Equal));
 
-            // 2. Surface Repulsion (Push) - "Crash Safety"
-            // Use Dynamic Radius + Margin (1.2x)
-            let safe_radius = radius.0 * 1.5;
-            
-            if distance < safe_radius {
-                // Exponential pushback to prevent collision
-                let overlap = safe_radius - distance;
-                // Stronger repulsion for larger bodies (stars)
-                let repulsion = -direction * overlap * REPULSION_STRENGTH * dt;
-                ship_vel.0 += repulsion;
-            }
+    for source in sources.iter().take(3) {
+        let distance = source.dist_sq.sqrt();
+        let direction = source.vec / distance;
+
+        // 1. Gravity (Pull)
+        let gravity_force = GRAVITY_CONSTANT * source.mass / source.dist_sq;
+        ship_vel.0 += direction * gravity_force * dt;
+
+        // 2. Surface Repulsion (Push)
+        let safe_radius = source.radius * 1.5;
+        if distance < safe_radius {
+            let overlap = safe_radius - distance;
+            let repulsion = -direction * overlap * REPULSION_STRENGTH * dt;
+            ship_vel.0 += repulsion;
         }
     }
 }

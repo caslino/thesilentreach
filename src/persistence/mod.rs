@@ -48,7 +48,7 @@ fn load_player_state(
         let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let delta_time = current_time - state.timestamp;
         
-        let mut local_pos = Vec3::new(state.local_x, state.local_y, state.local_z);
+        let local_pos = Vec3::new(state.local_x, state.local_y, state.local_z);
         let velocity = Vec3::new(state.vel_x, state.vel_y, state.vel_z);
         
         // Simple linear projection for "catch up" (ignoring gravity for simplicity during catchup)
@@ -57,12 +57,62 @@ fn load_player_state(
         // Limit catchup drift to e.g. 1 minute for safety?
         // Or assume ship was "drifting" safely? User requested "trajectory path calculated".
         // Let's assume linear drift.
-        let drift_time = delta_time.clamp(0, 600) as f32; // Limit to 10 mins of drift
-        local_pos += velocity * drift_time;
+        // catch-up logic
+        let drift_time = delta_time.clamp(0, 86400 * 7) as f32; // Limit to 1 week
         
-        spawn_loc.cell = GridCell::new(state.cell_x, state.cell_y, state.cell_z);
-        spawn_loc.local_pos = local_pos;
-        spawn_loc.velocity = Some(velocity); // Need to add this field to SpawnLocation
+        let mut final_pos = local_pos;
+        let mut final_vel = velocity;
+        
+        // 1. Check for Star (Dominant Gravity)
+        let cell = GridCell::new(state.cell_x, state.cell_y, state.cell_z);
+        if has_star(&cell) {
+            // Star Assumptions (Must match spawner.rs)
+            let star_mass = 1_000_000.0;
+            let mu = crate::universe::physics::GRAVITY_CONSTANT * star_mass;
+            
+            let r_vec = local_pos; // Star is at 0,0,0
+            let r = r_vec.length();
+            let v_sq = velocity.length_squared();
+            
+            // Specific Orbital Energy: E = v^2/2 - mu/r
+            let energy = v_sq / 2.0 - mu / r;
+            
+            if energy < 0.0 && r > 100.0 {
+                 // Elliptical Orbit (Stable)
+                 // We will approximate with a mean motion rotation for circular/near-circular orbits
+                 // This is a "Game Feel" approximation rather than full Kepler equation solver for stability
+                 
+                 // Mean Motion (n) = sqrt(mu / a^3). severe approx: a ~= r
+                 let n = (mu / r.powi(3)).sqrt();
+                 let angle = n * drift_time;
+                 
+                 // Rotate Position and Velocity
+                 // Axis of rotation? Cross product of r and v
+                 let angular_momentum = r_vec.cross(velocity);
+                 if angular_momentum.length_squared() > 0.001 {
+                     let axis = angular_momentum.normalize();
+                     let rot = Quat::from_axis_angle(axis, angle);
+                     
+                     final_pos = rot * local_pos;
+                     final_vel = rot * velocity;
+                     
+                     info!("PERSISTENCE: Applied Orbital Catch-up. Angle: {:.2} rads", angle);
+                 } else {
+                     // Straight line fallback
+                      final_pos += velocity * drift_time;
+                 }
+            } else {
+                 // Hyperbolic/Parabolic - just drift linearly
+                 final_pos += velocity * drift_time;
+            }
+        } else {
+             // Deep Space - Linear Drift
+             final_pos += velocity * drift_time;
+        }
+
+        spawn_loc.cell = cell;
+        spawn_loc.local_pos = final_pos;
+        spawn_loc.velocity = Some(final_vel);
         spawn_loc.has_spawned = true;
         
         info!("PERSISTENCE: Loaded state from {}s ago. Drifted {}s.", delta_time, drift_time);

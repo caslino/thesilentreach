@@ -21,7 +21,7 @@ impl Plugin for PlayerPlugin {
            .add_plugins(prediction::TrajectoryPlugin)
            .add_plugins(ui::HudPlugin)
            .add_plugins(label_update::LabelUpdatePlugin) // Sync In-World Labels
-           .add_plugins(interaction::InteractionPlugin) // Click to Rename
+           .add_plugins(interaction::SystemConsolePlugin) // System Console & Renaming
            // .add_plugins(ui::DiscoveryUiPlugin) // REMOVED
            .add_plugins(starmap::StarMapPlugin)
            .add_plugins(cockpit::CockpitPlugin)

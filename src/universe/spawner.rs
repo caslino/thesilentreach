@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use big_space::{GridCell, ReferenceFrame, FloatingOrigin};
-use bevy::picking::prelude::*;
 use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet};
+use crate::persistence::Database; // Import DB
 
 use crate::universe::physics::GRID_SIZE;
 use rand::{Rng, SeedableRng};
@@ -86,7 +86,7 @@ struct DistantProxy;
 fn manage_galaxy_sectors(
     mut galaxy_map: ResMut<GalaxyMap>,
     seed: Res<UniverseSeed>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
+    q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     
@@ -161,10 +161,11 @@ fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
+    q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
     common_meshes: Res<CommonMeshes>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    db: Res<Database>, // Add DB resource
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     let Ok(big_space_entity) = q_big_space.get_single() else { return; };
@@ -212,7 +213,8 @@ fn sync_universe_view(
                                 *cell, 
                                 star_data,
                                 &common_meshes,
-                                &mut materials
+                                &mut materials,
+                                &db
                             )
                         } else {
                             spawn_proxy_with_data(
@@ -233,10 +235,16 @@ fn sync_universe_view(
 }
 
 fn update_lod_scaling(
+    time: Res<Time>,
+    mut timer: Local<f32>,
     q_camera: Query<(&GridCell<i64>, &Transform), With<FloatingOrigin>>,
     mut q_proxies: Query<(&GridCell<i64>, &mut Transform, &Children), (With<DistantProxy>, Without<FloatingOrigin>)>,
     mut q_children: Query<(&mut Transform, Option<&Radius>), (With<MeshMaterial3d<StandardMaterial>>, Without<DistantProxy>, Without<FloatingOrigin>)>,
 ) {
+    *timer += time.delta_secs();
+    if *timer < 0.05 { return; } // 20Hz
+    *timer = 0.0;
+
     let Ok((cam_cell, cam_tf)) = q_camera.get_single() else { return; };
 
     for (proxy_cell, _, children) in q_proxies.iter_mut() {
@@ -343,7 +351,22 @@ fn spawn_star_with_data(
     data: &StarData,
     common_meshes: &Res<CommonMeshes>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
+    db: &Database,
 ) -> Entity {
+    // Determine Names
+    let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
+    let mut star_name = default_name.clone();
+    let mut planet_base_name = default_name.clone();
+    let mut is_custom = false;
+
+    if let Ok(Some(disc)) = db.get_discovery(cell) {
+        if disc.name != default_name {
+            star_name = disc.name.clone();
+            planet_base_name = disc.name.clone();
+            is_custom = true;
+        }
+    }
+
     let system_root = commands.spawn((
         Transform::default(),
         Visibility::default(),
@@ -380,7 +403,7 @@ fn spawn_star_with_data(
 
              // System Label (Billboard)
              star.spawn((
-                Text2d::new(format!("S {},{},{}", cell.x, cell.y, cell.z)),
+                Text2d::new(star_name),
                 TextFont { font_size: 100.0, ..default() }, // Large in-world font
                 TextColor(Color::WHITE),
                 TextLayout::new_with_justify(JustifyText::Center),
@@ -419,8 +442,14 @@ fn spawn_star_with_data(
             })
             .with_children(|planet| {
                  // Planet Label
+                 let p_name = if is_custom {
+                     format!("{} (Planet)", planet_base_name)
+                 } else {
+                     format!("P {},{},{}", cell.x, cell.y, cell.z)
+                 };
+
                  planet.spawn((
-                    Text2d::new(format!("P {},{},{}", cell.x, cell.y, cell.z)),
+                    Text2d::new(p_name),
                     TextFont { font_size: 80.0, ..default() }, // Slightly smaller than star
                     TextColor(Color::srgb(0.8, 0.8, 1.0)), // Blueish
                     TextLayout::new_with_justify(JustifyText::Center),
