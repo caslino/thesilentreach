@@ -86,7 +86,7 @@ fn setup_camera(
             ship.spawn((
                 Camera3d::default(),
                 HeadCamera,
-                bevy::core_pipeline::bloom::Bloom::NATURAL, // Enable Bloom
+                // bevy::core_pipeline::bloom::Bloom::NATURAL, // Enable Bloom (Disabled for FPS)
                 bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Better exposure
                 Projection::from(PerspectiveProjection {
                     far: 10_000_000.0,
@@ -198,16 +198,23 @@ fn apply_gravity(
     let Ok((ship_cell, ship_pos, mut ship_vel)) = ship_query.get_single_mut() else { return; };
     let dt = time.delta_secs();
 
-    struct GravitySource {
-        vec: Vec3,
-        dist_sq: f32,
-        mass: f32,
-        radius: f32,
-    }
+    // Optimization: Max gravity range squared (50,000 units)
+    // Gravity at 50k is neglible. 
+    let max_range = 50_000.0;
+    let max_range_sq = max_range * max_range; 
 
-    let mut sources: Vec<GravitySource> = Vec::new();
+    // Find nearest 3 bodies (Single Pass, No Allocation)
+    // We store (dist_sq, vec, mass, radius)
+    let mut nearest = [(f32::MAX, Vec3::ZERO, 0.0, 0.0); 3]; // Fixed size array
 
     for (body_cell, body_pos, mass, radius) in mass_query.iter() {
+        // Coarse Grid Check: If cell distance is too large, skip expensive float Math
+        if (body_cell.x - ship_cell.x).abs() > 1 || 
+           (body_cell.y - ship_cell.y).abs() > 1 || 
+           (body_cell.z - ship_cell.z).abs() > 1 {
+            continue; 
+        }
+
         let cell_diff = *body_cell - *ship_cell;
         let large_diff = Vec3::new(
              cell_diff.x as f32 * GRID_SIZE, 
@@ -218,30 +225,35 @@ fn apply_gravity(
         let relative_pos = body_pos.translation - ship_pos.translation + large_diff;
         let distance_sq = relative_pos.length_squared();
 
-        if distance_sq > 0.1 {
-            sources.push(GravitySource {
-                vec: relative_pos,
-                dist_sq: distance_sq,
-                mass: mass.0,
-                radius: radius.0,
-            });
+        if distance_sq > 0.1 && distance_sq < max_range_sq {
+            // Insertion Sort into fixed array
+            let entry = (distance_sq, relative_pos, mass.0, radius.0);
+            if entry.0 < nearest[0].0 {
+                nearest[2] = nearest[1];
+                nearest[1] = nearest[0];
+                nearest[0] = entry;
+            } else if entry.0 < nearest[1].0 {
+                nearest[2] = nearest[1];
+                nearest[1] = entry;
+            } else if entry.0 < nearest[2].0 {
+                nearest[2] = entry;
+            }
         }
     }
 
-    // Optimization: SOI (Sphere of Influence) - Only 3 nearest bodies
-    // Sort by distance (ascending)
-    sources.sort_by(|a, b| a.dist_sq.partial_cmp(&b.dist_sq).unwrap_or(std::cmp::Ordering::Equal));
+    // Apply forces
+    for (dist_sq, vec, mass, radius) in nearest.iter() {
+        if *dist_sq == f32::MAX { continue; }
 
-    for source in sources.iter().take(3) {
-        let distance = source.dist_sq.sqrt();
-        let direction = source.vec / distance;
+        let distance = dist_sq.sqrt();
+        let direction = *vec / distance;
 
         // 1. Gravity (Pull)
-        let gravity_force = GRAVITY_CONSTANT * source.mass / source.dist_sq;
+        let gravity_force = GRAVITY_CONSTANT * mass / dist_sq;
         ship_vel.0 += direction * gravity_force * dt;
 
         // 2. Surface Repulsion (Push)
-        let safe_radius = source.radius * 1.5;
+        let safe_radius = radius * 1.5;
         if distance < safe_radius {
             let overlap = safe_radius - distance;
             let repulsion = -direction * overlap * REPULSION_STRENGTH * dt;

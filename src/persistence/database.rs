@@ -135,13 +135,20 @@ impl Database {
         
         if let Some(row) = rows.next()? {
             let json_data: String = row.get(0)?;
-            if let Ok(saved_data) = serde_json::from_str::<Vec<SavedStar>>(&json_data) {
-                // Convert back
-                let data = saved_data.into_iter().map(|s| (
-                    GridCell::new(s.x, s.y, s.z),
-                    s.details
-                )).collect();
-                return Ok(Some(data));
+            match serde_json::from_str::<Vec<SavedStar>>(&json_data) {
+                Ok(saved_data) => {
+                    // Convert back
+                    let data = saved_data.into_iter().map(|s| (
+                        GridCell::new(s.x, s.y, s.z),
+                        s.details
+                    )).collect();
+                    return Ok(Some(data));
+                },
+                Err(e) => {
+                    error!("PERSISTENCE: JSON Deserialization Error for Sector {:?}: {}", sector, e);
+                    // Return error to prevent overwriting corrupt data with empty data
+                    return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(e))); 
+                }
             }
         }
         Ok(None)

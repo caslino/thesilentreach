@@ -145,9 +145,18 @@ fn generate_sector_data(
     db: &Database
 ) -> Vec<(GridCell<i64>, StarDetails)> {
     // 1. Check Database
-    if let Ok(Some(data)) = db.get_sector_data(sector) {
-         // info!("Loaded Sector {:?} from persistence.", sector);
-         return data;
+    match db.get_sector_data(sector) {
+        Ok(Some(data)) => {
+            info!("PERSISTENCE: Loaded Sector {:?} with {} stars.", sector, data.len());
+            return data;
+        },
+        Ok(None) => {
+             info!("PERSISTENCE: Sector {:?} not found. Generating...", sector);
+        },
+        Err(e) => {
+            error!("PERSISTENCE: Critical Error reading Sector {:?}: {}. Aborting generation to protect data.", sector, e);
+            return Vec::new(); 
+        }
     }
 
     // 2. Generate
@@ -202,12 +211,12 @@ fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
+    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame to handle async loading
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
     common_meshes: Res<CommonMeshes>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>, // For Proxy
-    mut star_materials: ResMut<Assets<StarMaterial>>, // For Full Star
-    mut planet_materials: ResMut<Assets<PlanetMaterial>>, // For Full Planet
+    mut std_materials: ResMut<Assets<StandardMaterial>>, 
+    mut star_materials: ResMut<Assets<StarMaterial>>, 
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>, 
     db: Res<Database>,
     render_config: Res<RenderConfig>,
     mut images: ResMut<Assets<Image>>,
@@ -426,6 +435,9 @@ fn spawn_star_with_data(
         cell, 
     )).id();
 
+    // Debug: Log spawn
+    info!("SPAWNING STAR @ {:?}: Size: {}, Color: {:?}", cell, data.size, data.color);
+
     commands.entity(parent_id).add_child(system_root);
 
     commands.entity(system_root).with_children(|root| {
@@ -473,6 +485,7 @@ fn spawn_star_with_data(
         let mut rng = StdRng::seed_from_u64(cell_seed);
         
         let num_planets = rng.gen_range(1..=9);
+        info!("SYSTEM {:?}: Spawning {} planets.", cell, num_planets); 
         for _i in 0..num_planets {
             let dist = rng.gen_range(5000.0..50000.0) + data.size;
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
