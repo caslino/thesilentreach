@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use thesilentreach::universe::UniversePlugin;
+
 use thesilentreach::player::PlayerPlugin;
 use thesilentreach::persistence::PersistencePlugin;
 
@@ -7,7 +7,19 @@ use bevy::render::renderer::RenderAdapter;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+use thesilentreach::universe::{UniversePlugin, RenderConfig, RenderMode};
+
 fn main() {
+    // CLI Args Parsing
+    let args: Vec<String> = std::env::args().collect();
+    let mut render_mode = RenderMode::Baked;
+    if args.contains(&"--procedural".to_string()) {
+        render_mode = RenderMode::Procedural;
+        println!("RENDER MODE: PROCEDURAL (High Detail) 💎");
+    } else {
+        println!("RENDER MODE: BAKED (High Performance) 🌍");
+    }
+
     // 1. Setup non-blocking writer
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
 
@@ -21,6 +33,7 @@ fn main() {
         .init();
 
     App::new()
+        .insert_resource(RenderConfig { mode: render_mode })
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 resolution: (450.0, 850.0).into(),

@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use big_space::{GridCell, ReferenceFrame, FloatingOrigin};
 use crate::universe::materials::{StarMaterial, PlanetMaterial};
 use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet, StarDetails, PlanetDetails, PlanetType, SectorIndex, SECTOR_SIZE};
-use crate::persistence::Database; // Import DB
+use crate::persistence::Database;
+use crate::universe::RenderConfig;
+use crate::universe::RenderMode;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::universe::physics::GRID_SIZE;
 use rand::{Rng, SeedableRng};
@@ -205,7 +208,9 @@ fn sync_universe_view(
     mut std_materials: ResMut<Assets<StandardMaterial>>, // For Proxy
     mut star_materials: ResMut<Assets<StarMaterial>>, // For Full Star
     mut planet_materials: ResMut<Assets<PlanetMaterial>>, // For Full Planet
-    db: Res<Database>, // Add DB resource
+    db: Res<Database>,
+    render_config: Res<RenderConfig>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     let Ok(big_space_entity) = q_big_space.get_single() else { return; };
@@ -255,7 +260,10 @@ fn sync_universe_view(
                                 &common_meshes,
                                 &mut star_materials,
                                 &mut planet_materials,
-                                &db
+                                &mut std_materials,
+                                &db,
+                                &render_config,
+                                &mut images
                             )
                         } else {
                             spawn_proxy_with_data(
@@ -393,7 +401,10 @@ fn spawn_star_with_data(
     common_meshes: &Res<CommonMeshes>,
     star_materials: &mut ResMut<Assets<StarMaterial>>,
     planet_materials: &mut ResMut<Assets<PlanetMaterial>>,
+    std_materials: &mut ResMut<Assets<StandardMaterial>>,
     db: &Database,
+    render_config: &Res<RenderConfig>,
+    images: &mut ResMut<Assets<Image>>,
 ) -> Entity {
     // Determine Names
     let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
@@ -474,19 +485,34 @@ fn spawn_star_with_data(
             let x = dist * angle.cos();
             let z = dist * angle.sin();
 
-            root.spawn((
+            let mut planet_entity = root.spawn((
                 Mesh3d(common_meshes.unit_sphere_low.clone()),
-                MeshMaterial3d(planet_materials.add(PlanetMaterial {
-                     base_color: col1,
-                     second_color: col2,
-                     seed: planet_seed,
-                })),
                 Mass(10_000.0), 
                 Radius(planet_size),
                 Planet,
                 PlanetDetails(p_type),
                 Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
-            ))
+            ));
+
+            if render_config.mode == RenderMode::Baked {
+                 // Bake Texture
+                 let tex = bake_planet_texture(images, &p_type, planet_seed);
+                 planet_entity.insert(MeshMaterial3d(std_materials.add(StandardMaterial {
+                     base_color_texture: Some(tex),
+                     base_color: Color::WHITE,
+                     perceptual_roughness: 0.8,
+                     ..default()
+                 })));
+            } else {
+                 // Procedural
+                 planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
+                     base_color: col1,
+                     second_color: col2,
+                     seed: planet_seed,
+                })));
+            }
+            
+            planet_entity
             .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {
                 events.send(crate::universe::StarClicked { entity: _trigger.entity(), cell });
             })
@@ -512,4 +538,83 @@ fn spawn_star_with_data(
     });
 
     system_root
+}
+
+fn bake_planet_texture(
+    images: &mut Assets<Image>,
+    p_type: &PlanetType,
+    seed: f32,
+) -> Handle<Image> {
+    let size = 128; // Small texture for performance/style
+    let mut pixels = Vec::with_capacity(size * size * 4);
+    let (c1, c2) = p_type.get_palette(); // LinearRgba
+    
+    // Convert LinearRgba to Vec3 for mixing
+    let col1 = Vec3::new(c1.red, c1.green, c1.blue);
+    let col2 = Vec3::new(c2.red, c2.green, c2.blue);
+
+    for y in 0..size {
+        for x in 0..size {
+            // Spherical Mapping approximation (just noise on 2D plane for now, usually needs equirectangular)
+            // For simple "Planet Style", standard noise is okay if UVs are standard sphere.
+            // Sphere mesh UVs are equirectangular.
+            
+            let u = x as f32 / size as f32;
+            let v = y as f32 / size as f32;
+            
+            // Noise scale
+            let scale = 10.0;
+            let n = simple_noise(u * scale + seed, v * scale + seed);
+            
+            // Mix colors
+            let final_col = col1.lerp(col2, n);
+            
+            pixels.extend_from_slice(&[
+                (final_col.x * 255.0) as u8,
+                (final_col.y * 255.0) as u8,
+                (final_col.z * 255.0) as u8,
+                255
+            ]);
+        }
+    }
+
+    let image = Image::new(
+        Extent3d {
+            width: size as u32,
+            height: size as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD, 
+    );
+    images.add(image)
+}
+
+// Re-implement simple noise locally to avoid pub sharing issues
+fn simple_noise(x: f32, y: f32) -> f32 {
+    let i = x.floor();
+    let j = y.floor();
+    let f_x = x.fract();
+    let f_y = y.fract();
+    
+    // Hash
+    let rand = |dX: f32, dY: f32| -> f32 {
+        ((i + dX) * 12.9898 + (j + dY) * 78.233).sin().fract().abs()
+    };
+    
+    let a = rand(0.0, 0.0);
+    let b = rand(1.0, 0.0);
+    let c = rand(0.0, 1.0);
+    let d = rand(1.0, 1.0);
+    
+    // Mix
+    let u_x = f_x * f_x * (3.0 - 2.0 * f_x);
+    let u_y = f_y * f_y * (3.0 - 2.0 * f_y);
+    
+    let h1 = a + (b - a) * u_x;
+    let h2 = c + (d - c) * u_x;
+    
+    h1 + (h2 - h1) * u_y
 }

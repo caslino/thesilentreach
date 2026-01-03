@@ -18,6 +18,18 @@ pub struct GameWorld(pub Entity);
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct UniverseSeed(pub u64);
 
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderMode {
+    Procedural,
+    #[default]
+    Baked,
+}
+
+#[derive(Resource, Default, Debug)]
+pub struct RenderConfig {
+    pub mode: RenderMode,
+}
+
 #[derive(Component)]
 pub struct Mass(pub f32);
 
