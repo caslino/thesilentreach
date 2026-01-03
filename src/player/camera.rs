@@ -6,7 +6,7 @@ use crate::universe::physics::{GRAVITY_CONSTANT, GRID_SIZE, REPULSION_STRENGTH};
 use crate::universe::{Mass, Radius};
 
 const SHIP_MASS: f32 = 1000.0; // kg
-const THRUST_FORCE: f32 = 750_000.0; // Newtons (F = ma => 750 m/s^2 accel)
+const THRUST_FORCE: f32 = 100_000.0; // Newtons (Reduced for Zen Pacing)
 const DRAG_COEFFICIENT: f32 = 2.0;   // "Space Friction" / Inertial Dampeners
 const TURN_POWER: f32 = 0.8;     // Lower torque for heavier start
 const ROTATIONAL_DRAG: f32 = 0.5; // Lower drag to preserve momentum

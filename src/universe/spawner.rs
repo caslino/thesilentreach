@@ -177,7 +177,7 @@ fn generate_sector_data(
                 // Since this runs lazily, we don't need origin check, 
                 // but if we want the origin (0,0,0) to always have a star:
                 let is_origin = x == 0 && y == 0 && z == 0;
-                let density_chance = if is_origin { 1.0 } else { 0.02 }; 
+                let density_chance = if is_origin { 1.0 } else { 0.005 }; // 0.5% chance 
 
                 if rng.gen_bool(density_chance) {
                     let (color, size) = generate_star_params(&mut rng);
@@ -472,9 +472,9 @@ fn spawn_star_with_data(
         let cell_seed = hasher.finish();
         let mut rng = StdRng::seed_from_u64(cell_seed);
         
-        let num_planets = rng.gen_range(0..=5);
+        let num_planets = rng.gen_range(1..=9);
         for _i in 0..num_planets {
-            let dist = rng.gen_range(500.0..5000.0) + data.size;
+            let dist = rng.gen_range(5000.0..50000.0) + data.size;
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
             let planet_size = rng.gen_range(10.0..40.0);
             
