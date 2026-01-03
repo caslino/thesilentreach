@@ -5,7 +5,21 @@ use thesilentreach::persistence::PersistencePlugin;
 
 use bevy::render::renderer::RenderAdapter;
 
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
 fn main() {
+    // 1. Setup non-blocking writer
+    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
+
+    // 2. Configure our own subscriber
+    let filter_layer = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,bevy_hierarchy=error"));
+
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
+        .init();
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -14,7 +28,8 @@ fn main() {
                 ..default()
             }),
             ..default()
-        }))
+        })
+        .disable::<bevy::log::LogPlugin>())
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(UniversePlugin)
         .add_plugins(PlayerPlugin)

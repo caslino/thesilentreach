@@ -74,7 +74,7 @@ fn setup_camera(
             Transform::from_translation(spawn_loc.local_pos).looking_at(Vec3::ZERO, Vec3::Y),
             GlobalTransform::default(),
             ZenCamera::default(), 
-            Velocity(Vec3::ZERO),
+            Velocity(spawn_loc.velocity.unwrap_or(Vec3::ZERO)),
             AngularVelocity(Vec3::ZERO), // Added Angular Physics
             Mass(SHIP_MASS), 
             spawn_loc.cell,
@@ -170,9 +170,18 @@ fn ship_controls(
         }
 
         // --- 2. THRUST (F = ma -> a = F/m) ---
-        if input.throttle > 0.0 {
+        // --- 2. THRUST (F = ma -> a = F/m) ---
+        if input.throttle.abs() > 0.0 {
             let forward = ship_transform.forward();
-            let accel = (input.throttle * THRUST_FORCE) / SHIP_MASS;
+            
+            // Reverse Thrusters are weaker (1/3 power)
+            let current_thrust_power = if input.throttle > 0.0 {
+                THRUST_FORCE
+            } else {
+                THRUST_FORCE / 3.0
+            };
+
+            let accel = (input.throttle * current_thrust_power) / SHIP_MASS;
             ship_velocity.0 += forward * accel * dt;
         }
     }

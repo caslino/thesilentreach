@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use big_space::{GridCell, ReferenceFrame, FloatingOrigin};
-use crate::universe::{UniverseSeed, Mass, Radius};
+use bevy::picking::prelude::*;
+use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet};
+
 use crate::universe::physics::GRID_SIZE;
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
@@ -331,6 +333,9 @@ fn spawn_proxy_with_data(
     root
 }
 
+#[derive(Component)]
+pub struct SystemLabel;
+
 fn spawn_star_with_data(
     commands: &mut Commands,
     parent_id: Entity,
@@ -358,8 +363,13 @@ fn spawn_star_with_data(
             })),
             Mass(1_000_000.0), 
             Radius(data.size), 
+            Star,
             Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
-        )).with_children(|star| {
+        ))
+        .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {
+            events.send(crate::universe::StarClicked { entity: _trigger.entity(), cell });
+        })
+        .with_children(|star| {
              // Light
              star.spawn(PointLight {
                 color: data.color,
@@ -367,6 +377,17 @@ fn spawn_star_with_data(
                 range: 2_000_000.0,
                 ..default()
             });
+
+             // System Label (Billboard)
+             star.spawn((
+                Text2d::new(format!("S {},{},{}", cell.x, cell.y, cell.z)),
+                TextFont { font_size: 100.0, ..default() }, // Large in-world font
+                TextColor(Color::WHITE),
+                TextLayout::new_with_justify(JustifyText::Center),
+                Transform::from_xyz(0.0, data.size * 2.5, 0.0) // Increased offset: 2.5x radius
+                    .with_scale(Vec3::splat(1.0)), // Ensure scale 
+                SystemLabel,
+             ));
         });
 
         // Planets (Randomized per system instance, not stored in GalaxyMap for now as they are local details)
@@ -390,8 +411,24 @@ fn spawn_star_with_data(
                 MeshMaterial3d(materials.add(StandardMaterial::from(planet_color))),
                 Mass(10_000.0), 
                 Radius(planet_size),
+                Planet,
                 Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
-            ));
+            ))
+            .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {
+                events.send(crate::universe::StarClicked { entity: _trigger.entity(), cell });
+            })
+            .with_children(|planet| {
+                 // Planet Label
+                 planet.spawn((
+                    Text2d::new(format!("P {},{},{}", cell.x, cell.y, cell.z)),
+                    TextFont { font_size: 80.0, ..default() }, // Slightly smaller than star
+                    TextColor(Color::srgb(0.8, 0.8, 1.0)), // Blueish
+                    TextLayout::new_with_justify(JustifyText::Center),
+                    Transform::from_xyz(0.0, planet_size * 3.0, 0.0) // 3x radius
+                        .with_scale(Vec3::splat(1.0)),
+                    SystemLabel, // Will sync with DB name
+                 ));
+            });
         }
     });
 

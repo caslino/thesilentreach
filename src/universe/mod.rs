@@ -19,6 +19,18 @@ pub struct Mass(pub f32);
 #[derive(Component)]
 pub struct Radius(pub f32);
 
+#[derive(Component)]
+pub struct Star;
+
+#[derive(Component)]
+pub struct Planet;
+
+#[derive(Event)]
+pub struct StarClicked {
+    pub entity: Entity,
+    pub cell: big_space::GridCell<i64>,
+}
+
 impl Plugin for UniversePlugin {
     fn build(&self, app: &mut App) {
         app
@@ -26,7 +38,8 @@ impl Plugin for UniversePlugin {
             .add_plugins(BigSpacePlugin::<i64>::default())
             .add_systems(PreStartup, setup_universe)
             .add_plugins(spawner::StarSystemSpawnerPlugin)
-            .add_plugins(sky::SkyPlugin);
+            .add_plugins(sky::SkyPlugin)
+            .add_event::<StarClicked>();
     }
 }
 

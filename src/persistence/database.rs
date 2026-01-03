@@ -1,0 +1,183 @@
+use rusqlite::{Connection, Result, params};
+use big_space::GridCell;
+use std::sync::{Arc, Mutex};
+use bevy::prelude::*;
+
+#[derive(Debug, Clone)]
+pub struct DiscoveredWorld {
+    pub cell_x: i64,
+    pub cell_y: i64,
+    pub cell_z: i64,
+    pub name: String,
+    pub finder: String,
+    pub note: String,
+    pub date: String,
+    pub object_type: String, // "Star" or "Planet"
+}
+
+// ... (Existing DiscoveredWorld and imports)
+use bevy::prelude::*; // Ensure Vec3 is available
+
+#[derive(Debug, Clone)]
+pub struct PlayerState {
+    pub cell_x: i64,
+    pub cell_y: i64,
+    pub cell_z: i64,
+    pub local_x: f32,
+    pub local_y: f32,
+    pub local_z: f32,
+    pub vel_x: f32,
+    pub vel_y: f32,
+    pub vel_z: f32,
+    pub timestamp: i64, 
+}
+
+// Thread-safe wrapper for the connection
+#[derive(Resource, Clone)]
+pub struct Database {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl Database {
+    pub fn open() -> Result<Self> {
+        let conn = Connection::open("universe.db")?;
+        
+        // Discoveries Table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS discoveries (
+                id INTEGER PRIMARY KEY,
+                cell_x INTEGER NOT NULL,
+                cell_y INTEGER NOT NULL,
+                cell_z INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                finder TEXT NOT NULL,
+                note TEXT NOT NULL,
+                date TEXT NOT NULL,
+                object_type TEXT NOT NULL,
+                UNIQUE(cell_x, cell_y, cell_z)
+            )",
+            [],
+        )?;
+
+        // Player State Table (Single Row)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS player_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                cell_x INTEGER NOT NULL,
+                cell_y INTEGER NOT NULL,
+                cell_z INTEGER NOT NULL,
+                local_x REAL NOT NULL,
+                local_y REAL NOT NULL,
+                local_z REAL NOT NULL,
+                vel_x REAL NOT NULL,
+                vel_y REAL NOT NULL,
+                vel_z REAL NOT NULL,
+                timestamp INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        Ok(Database {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+
+    pub fn save_player_state(&self, state: &PlayerState) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO player_state (id, cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             params![state.cell_x, state.cell_y, state.cell_z, 
+                     state.local_x, state.local_y, state.local_z, 
+                     state.vel_x, state.vel_y, state.vel_z, 
+                     state.timestamp],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_player_state(&self) -> Result<Option<PlayerState>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp FROM player_state WHERE id = 1")?;
+        
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(PlayerState {
+                cell_x: row.get(0)?,
+                cell_y: row.get(1)?,
+                cell_z: row.get(2)?,
+                local_x: row.get(3)?,
+                local_y: row.get(4)?,
+                local_z: row.get(5)?,
+                vel_x: row.get(6)?,
+                vel_y: row.get(7)?,
+                vel_z: row.get(8)?,
+                timestamp: row.get(9)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+    // ... (Existing discovery methods)
+
+    pub fn save_discovery(&self, world: &DiscoveredWorld) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO discoveries (cell_x, cell_y, cell_z, name, finder, note, date, object_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![world.cell_x, world.cell_y, world.cell_z, world.name, world.finder, world.note, world.date, world.object_type],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_discovery(&self, cell: GridCell<i64>) -> Result<Option<DiscoveredWorld>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT cell_x, cell_y, cell_z, name, finder, note, date, object_type 
+             FROM discoveries 
+             WHERE cell_x = ?1 AND cell_y = ?2 AND cell_z = ?3"
+        )?;
+        
+        let mut rows = stmt.query(params![cell.x, cell.y, cell.z])?;
+
+        if let Some(row) = rows.next()? {
+            Ok(Some(DiscoveredWorld {
+                cell_x: row.get(0)?,
+                cell_y: row.get(1)?,
+                cell_z: row.get(2)?,
+                name: row.get(3)?,
+                finder: row.get(4)?,
+                note: row.get(5)?,
+                date: row.get(6)?,
+                object_type: row.get(7)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_all_discoveries(&self) -> Result<Vec<DiscoveredWorld>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT cell_x, cell_y, cell_z, name, finder, note, date, object_type FROM discoveries"
+        )?;
+
+        let discovery_iter = stmt.query_map([], |row| {
+            Ok(DiscoveredWorld {
+                cell_x: row.get(0)?,
+                cell_y: row.get(1)?,
+                cell_z: row.get(2)?,
+                name: row.get(3)?,
+                finder: row.get(4)?,
+                note: row.get(5)?,
+                date: row.get(6)?,
+                object_type: row.get(7)?,
+            })
+        })?;
+
+        let mut worlds = Vec::new();
+        for world in discovery_iter {
+            worlds.push(world?);
+        }
+        Ok(worlds)
+    }
+}

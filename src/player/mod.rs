@@ -8,6 +8,10 @@ pub mod audio;
 
 use bevy::prelude::*;
 
+pub mod starmap;
+pub mod label_update;
+pub mod interaction;
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -16,6 +20,10 @@ impl Plugin for PlayerPlugin {
            .add_plugins(camera::ZenCameraPlugin)
            .add_plugins(prediction::TrajectoryPlugin)
            .add_plugins(ui::HudPlugin)
+           .add_plugins(label_update::LabelUpdatePlugin) // Sync In-World Labels
+           .add_plugins(interaction::InteractionPlugin) // Click to Rename
+           // .add_plugins(ui::DiscoveryUiPlugin) // REMOVED
+           .add_plugins(starmap::StarMapPlugin)
            .add_plugins(cockpit::CockpitPlugin)
            .add_plugins(navigation::NavigationPlugin)
            .add_plugins(audio::ZenAudioPlugin);

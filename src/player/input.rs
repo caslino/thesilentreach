@@ -11,7 +11,7 @@ impl Plugin for MobileInputPlugin {
 
 #[derive(Resource, Default, Debug)]
 pub struct VehicleInput {
-    pub throttle: f32, // 0.0 to 1.0
+    pub throttle: f32, // -1.0 (Full Reverse) to 1.0 (Full Forward)
     pub pitch: f32,    // -1.0 to 1.0 (Down/Up)
     pub yaw: f32,      // -1.0 to 1.0 (Left/Right)
     pub roll: f32,     // -1.0 to 1.0 (Roll Left/Right)
@@ -32,7 +32,7 @@ fn update_vehicle_input(
         input.throttle = (input.throttle + throttle_sensitivity * dt).min(1.0);
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        input.throttle = (input.throttle - throttle_sensitivity * dt).max(0.0);
+        input.throttle = (input.throttle - throttle_sensitivity * dt).max(-1.0);
     }
 
     // 2. Pitch (W/S) - Spring Back
