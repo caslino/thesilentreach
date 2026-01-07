@@ -101,5 +101,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     
     final_color += base_color * rim * 2.0;
 
-    return vec4<f32>(final_color, 1.0);
+    return vec4<f32>(final_color * 10.0, 1.0);
 }

@@ -8,6 +8,8 @@ pub mod spawner;
 pub mod physics;
 pub mod sky;
 pub mod materials;
+pub mod star_common;
+pub mod gpu_star_renderer;
 
 use self::materials::{StarMaterial, PlanetMaterial};
 
@@ -41,6 +43,13 @@ pub struct Star;
 
 #[derive(Component)]
 pub struct Planet;
+
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Orbit {
+    pub radius: f32,
+    pub speed: f32,
+    pub angle: f32,
+}
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
 pub struct StarDetails {
@@ -82,6 +91,15 @@ impl PlanetType {
             PlanetType::GasGiant => "Class: Gas Giant | Atmos: H2/He | Gravity: 4.5g".to_string(),
         }
     }
+
+    pub fn get_atmosphere_color(&self) -> (LinearRgba, f32) {
+        match self {
+            PlanetType::Terran => (LinearRgba::from(Color::srgb(0.0, 0.4, 0.8)), 1.0), // Blue Atmosphere
+            PlanetType::Ice => (LinearRgba::from(Color::srgb(0.6, 0.9, 1.0)), 0.6), // Cyan mist
+            PlanetType::Magma => (LinearRgba::from(Color::srgb(1.0, 0.3, 0.0)), 1.2), // Thick Orange/Red
+            PlanetType::GasGiant => (LinearRgba::from(Color::srgb(0.7, 0.5, 0.3)), 1.5), // Heavy Beige
+        }
+    }
 }
 
 #[derive(Component, Clone, Copy, Debug)]
@@ -106,6 +124,7 @@ impl Plugin for UniversePlugin {
             .add_systems(PreStartup, setup_universe)
             .add_plugins(spawner::StarSystemSpawnerPlugin)
             .add_plugins(sky::SkyPlugin)
+            .add_plugins(gpu_star_renderer::GPUStarPlugin)
             .add_plugins(MaterialPlugin::<StarMaterial>::default())
             .add_plugins(MaterialPlugin::<PlanetMaterial>::default())
             .add_event::<StarClicked>()

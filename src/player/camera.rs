@@ -35,7 +35,7 @@ pub struct ZenCamera {
 impl Default for ZenCamera {
     fn default() -> Self {
         Self {
-            max_speed: 10000.0,
+            max_speed: 200000.0,
         }
     }
 }
@@ -86,7 +86,7 @@ fn setup_camera(
             ship.spawn((
                 Camera3d::default(),
                 HeadCamera,
-                // bevy::core_pipeline::bloom::Bloom::NATURAL, // Enable Bloom (Disabled for FPS)
+                bevy::core_pipeline::bloom::Bloom::NATURAL, // Enable Bloom (Disabled for FPS)
                 bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Better exposure
                 Projection::from(PerspectiveProjection {
                     far: 10_000_000.0,

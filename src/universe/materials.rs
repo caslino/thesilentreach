@@ -29,6 +29,10 @@ pub struct PlanetMaterial {
     pub second_color: LinearRgba,
     #[uniform(0)]
     pub seed: f32,
+    #[uniform(0)]
+    pub atmosphere_color: LinearRgba,
+    #[uniform(0)]
+    pub atmosphere_density: f32,
 }
 
 impl Material for PlanetMaterial {

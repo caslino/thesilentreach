@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use big_space::{GridCell, ReferenceFrame, FloatingOrigin};
 use crate::universe::materials::{StarMaterial, PlanetMaterial};
 use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet, StarDetails, PlanetDetails, PlanetType, SectorIndex, SECTOR_SIZE};
+use crate::universe::gpu_star_renderer::StarSector; 
 use crate::persistence::Database;
 use crate::universe::RenderConfig;
 use crate::universe::RenderMode;
@@ -24,9 +25,21 @@ impl Plugin for StarSystemSpawnerPlugin {
            .init_resource::<GalaxyMap>()
            .init_resource::<CommonMeshes>()
            .init_resource::<SectorTaskTracker>()
-           .add_systems(Update, (manage_galaxy_sectors, handle_generation_tasks, sync_universe_view, update_lod_scaling, despawn_distant_systems));
+           .add_systems(Update, (
+               manage_galaxy_sectors, 
+               handle_generation_tasks, 
+               // Ensure texture tasks are handled before potential despawns to avoid command races
+               handle_texture_tasks.before(despawn_distant_systems), 
+               sync_universe_view, 
+               update_lod_scaling, 
+               despawn_distant_systems, 
+               rotate_planets
+            ));
     }
 }
+
+#[derive(Component)]
+pub struct TextureBakeTask(Task<Vec<u8>>);
 
 #[derive(Resource)]
 pub struct CommonMeshes {
@@ -44,15 +57,10 @@ impl FromWorld for CommonMeshes {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LodLevel {
-    Proxy,
-    Full,
-}
-
 #[derive(Resource, Default)]
 pub struct SpawnTracker {
-    pub spawned_cells: HashMap<GridCell<i64>, (Entity, LodLevel)>,
+    pub spawned_cells: HashMap<GridCell<i64>, Entity>, // Only for Full stars
+    pub spawned_sectors: HashMap<SectorIndex, Entity>, // Distant GPU sectors
 }
 
 // StarData moved to mod.rs
@@ -74,9 +82,6 @@ struct GalaxyMap {
 struct SectorTaskTracker {
     tasks: HashMap<SectorIndex, Task<(SectorIndex, Vec<(GridCell<i64>, StarDetails)>)>>,
 }
-
-#[derive(Component)]
-struct DistantProxy;
 
 fn manage_galaxy_sectors(
     galaxy_map: Res<GalaxyMap>,
@@ -139,6 +144,36 @@ fn handle_generation_tasks(
     }
 }
 
+fn handle_texture_tasks(
+    mut commands: Commands,
+    mut q_tasks: Query<(Entity, &mut TextureBakeTask, &PlanetDetails, &Radius)>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, mut task, p_details, radius) in q_tasks.iter_mut() {
+        if let Some(pixels) = future::block_on(future::poll_once(&mut task.0)) {
+            // Task Complete: Create Image and Material
+            let image = create_planet_image(&mut images, pixels);
+            
+            // Assuming baked planets used StandardMaterial (from logic in spawn_star_with_data)
+            let material = materials.add(StandardMaterial {
+                base_color_texture: Some(image),
+                base_color: Color::WHITE,
+                perceptual_roughness: 0.8,
+                ..default()
+            });
+
+            // Safely apply changes only if entity still exists
+            commands.queue(move |world: &mut World| {
+                if let Ok(mut entity_cmd) = world.get_entity_mut(entity) {
+                    entity_cmd.insert(MeshMaterial3d(material));
+                    entity_cmd.remove::<TextureBakeTask>();
+                }
+            });
+        }
+    }
+}
+
 fn generate_sector_data(
     sector: SectorIndex, 
     seed: UniverseSeed,
@@ -175,23 +210,9 @@ fn generate_sector_data(
             for z in start_z..end_z {
                  let cell = GridCell::<i64>::new(x, y, z);
                 
-                // Deterministic Check
-                let mut hasher = DefaultHasher::new();
-                cell.hash(&mut hasher);
-                seed.0.hash(&mut hasher); 
-                let cell_seed = hasher.finish();
-                let mut rng = StdRng::seed_from_u64(cell_seed);
-
-                // Density Check (2%)
-                // Since this runs lazily, we don't need origin check, 
-                // but if we want the origin (0,0,0) to always have a star:
-                let is_origin = x == 0 && y == 0 && z == 0;
-                let density_chance = if is_origin { 1.0 } else { 0.005 }; // 0.5% chance 
-
-                if rng.gen_bool(density_chance) {
-                    let (color, size) = generate_star_params(&mut rng);
-                    stars.push((cell, StarDetails { color, size }));
-                }
+                 if let Some((color, size)) = crate::universe::star_common::get_star_data(x, y, z, seed.0) {
+                     stars.push((cell, StarDetails { color, size }));
+                 }
             }
         }
     }
@@ -211,7 +232,7 @@ fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame to handle async loading
+    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, 
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
     common_meshes: Res<CommonMeshes>,
     mut std_materials: ResMut<Assets<StandardMaterial>>, 
@@ -220,119 +241,108 @@ fn sync_universe_view(
     db: Res<Database>,
     render_config: Res<RenderConfig>,
     mut images: ResMut<Assets<Image>>,
+    seed: Res<UniverseSeed>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     let Ok(big_space_entity) = q_big_space.get_single() else { return; };
 
-    let detail_radius = 1;
+    let detail_radius = 1; // 1 Sector radius for Full stars
+    let view_radius = 5; // 5 Sectors for GPU stars
 
-    // Iterate over relevant sectors (Current + neighbor)
     let center_sector = SectorIndex::from_cell(*camera_cell);
-    // Only check sectors we know exist (manage_galaxy_sectors ensures they do)
     
-    for x in -1..=1 {
-        for y in -1..=1 {
-            for z in -1..=1 {
-                let sector_idx = SectorIndex {
+    // 1. Iterate View Area
+    for x in -view_radius..=view_radius {
+        for y in -view_radius..=view_radius {
+            for z in -view_radius..=view_radius {
+                 let sector_idx = SectorIndex {
                     x: center_sector.x + x,
                     y: center_sector.y + y,
                     z: center_sector.z + z,
                 };
+
+                let sub_dx = x.abs();
+                let sub_dy = y.abs();
+                let sub_dz = z.abs();
+                let dist_sectors = sub_dx.max(sub_dy).max(sub_dz);
+
+                // LOD Selection
+                let want_full = dist_sectors <= detail_radius;
                 
-                if let Some(stars) = galaxy_map.sectors.get(&sector_idx) {
-                     for (cell, star_data) in stars {
-                        // Check distance to camera
-                        let dx = (cell.x - camera_cell.x).abs();
-                        let dy = (cell.y - camera_cell.y).abs();
-                        let dz = (cell.z - camera_cell.z).abs();
-                        let dist = dx.max(dy).max(dz);
+                // DISTANT (GPU) Logic
+                if !want_full {
+                    // We need a GPU Sector
+                    if !tracker.spawned_sectors.contains_key(&sector_idx) {
+                        // Spawn GPU Sector
+                        // Calculate Sector Origin Cell
+                        let origin_cell = GridCell::<i64>::new(
+                             sector_idx.x * SECTOR_SIZE,
+                             sector_idx.y * SECTOR_SIZE,
+                             sector_idx.z * SECTOR_SIZE
+                        );
+                        
+                        let entity = commands.spawn((
+                            SpatialBundle::default(), // Provides Transform/GlobalTransform/Visibility
+                            origin_cell, // BigSpace moves it
+                            StarSector {
+                                index: sector_idx,
+                                seed: seed.0 as u32,
+                            },
+                        )).id();
+                        commands.entity(big_space_entity).add_child(entity);
+                        tracker.spawned_sectors.insert(sector_idx, entity);
+                    }
+                    
+                    // Ensure Full stars are despawned for this sector
+                    // Iterate cells in this sector?
+                    // Optimized: Only check `spawned_cells` if we transitioned.
+                    // But brute force check for keys in this sector:
+                    // Only if we just transitioned? 
+                    // Let's rely on standard despawn logic separately or just check here.
+                    // Doing 10x10x10 check is 1000 iter. Too slow?
+                    // Better: `despawn_distant_systems` handles removal of full stars out of range.
+                    // `despawn_distant_systems` currently checks distance > removal_radius.
+                    // If removal_radius matches `detail_radius`, it works.
+                } 
+                
+                // FULL Logic
+                else {
+                    // We want FULL stars.
+                    // 1. Despawn GPU Sector if exists
+                    if let Some(entity) = tracker.spawned_sectors.remove(&sector_idx) {
+                        commands.entity(entity).despawn_recursive();
+                    }
 
-                        // Only spawn if within view radius (5)
-                        if dist > 5 { continue; }
-
-                        let required_lod = if dist <= detail_radius { LodLevel::Full } else { LodLevel::Proxy };
-
-                        if let Some((entity, current_lod)) = tracker.spawned_cells.get(cell) {
-                            if *current_lod == required_lod {
-                                continue; 
+                    // 2. Ensure Full stars spawned (if data exists)
+                    if let Some(stars) = galaxy_map.sectors.get(&sector_idx) {
+                        for (cell, star_data) in stars {
+                            if !tracker.spawned_cells.contains_key(cell) {
+                                let entity = spawn_star_with_data(
+                                    &mut commands, 
+                                    big_space_entity, 
+                                    *cell, 
+                                    star_data,
+                                    &common_meshes,
+                                    &mut star_materials,
+                                    &mut planet_materials,
+                                    &mut std_materials,
+                                    &db,
+                                    &render_config,
+                                    &mut images
+                                );
+                                tracker.spawned_cells.insert(*cell, entity);
                             }
-                            commands.entity(*entity).despawn_recursive();
                         }
-
-                         // Spawn 
-                        let new_entity = if required_lod == LodLevel::Full {
-                            spawn_star_with_data(
-                                &mut commands, 
-                                big_space_entity, 
-                                *cell, 
-                                star_data,
-                                &common_meshes,
-                                &mut star_materials,
-                                &mut planet_materials,
-                                &mut std_materials,
-                                &db,
-                                &render_config,
-                                &mut images
-                            )
-                        } else {
-                            spawn_proxy_with_data(
-                                &mut commands, 
-                                big_space_entity, 
-                                *cell, 
-                                star_data,
-                                &common_meshes,
-                                &mut std_materials
-                            )
-                        };
-                        tracker.spawned_cells.insert(*cell, (new_entity, required_lod));
-                     }
+                    } 
                 }
             }
         }
     }
 }
 
-fn update_lod_scaling(
-    time: Res<Time>,
-    mut timer: Local<f32>,
-    q_camera: Query<(&GridCell<i64>, &Transform), With<FloatingOrigin>>,
-    mut q_proxies: Query<(&GridCell<i64>, &mut Transform, &Children), (With<DistantProxy>, Without<FloatingOrigin>)>,
-    mut q_children: Query<(&mut Transform, Option<&Radius>), (With<MeshMaterial3d<StandardMaterial>>, Without<DistantProxy>, Without<FloatingOrigin>)>,
-) {
-    *timer += time.delta_secs();
-    if *timer < 0.05 { return; } // 20Hz
-    *timer = 0.0;
 
-    let Ok((cam_cell, cam_tf)) = q_camera.get_single() else { return; };
-
-    for (proxy_cell, _, children) in q_proxies.iter_mut() {
-        // Calculate Distance (Continuous)
-        let cell_diff = *proxy_cell - *cam_cell;
-        let large_diff = Vec3::new(
-            cell_diff.x as f32 * GRID_SIZE, 
-            cell_diff.y as f32 * GRID_SIZE,
-            cell_diff.z as f32 * GRID_SIZE,
-        );
-        
-        // Exact distance: (CellDiff - CameraLocalPos)
-        let dist = (large_diff - cam_tf.translation).length(); 
-
-         // We want scale 0.0 at 5 * GRID_SIZE, and 1.0 at ~1.5 * GRID_SIZE (Scanning boundary)
-        let min_dist = 1.5 * GRID_SIZE; 
-        let max_dist = 5.0 * GRID_SIZE;
-        
-        // Inverse lerp: 1.0 at min, 0.0 at max
-        let scale = ((max_dist - dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
-        
-        // Apply scale to the visual child
-        for child in children {
-            if let Ok((mut child_tf, radius)) = q_children.get_mut(*child) {
-                 let base_scale = radius.map(|r| r.0).unwrap_or(1.0);
-                 child_tf.scale = Vec3::splat(scale * base_scale);
-            }
-        }
-    }
-}
+// Removed update_lod_scaling (handled by shader/GPU)
+fn update_lod_scaling() {}
 
 fn despawn_distant_systems(
     mut commands: Commands,
@@ -340,16 +350,42 @@ fn despawn_distant_systems(
     q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
-    let removal_radius = 6; 
+    let removal_radius = 2; // Keep closer than previously (previously 6). Now > 1 is Distant/GPU? 
+    // If detail_radius is 1, then >1 is handled by GPU.
+    // So distinct entities should be removed if > 1.
+    // Let's set to 2 to have some margin.
+    // BUT we must despawn them if we are swapping to GPU.
+    // Fix loop: full_radius must encompass the area spawned by sync_universe_view.
+    // detail_radius is 1 sector. 1 sector = 10 units. 
+    // Max distance to a neighbor sector cell: ~20 units.
+    // Safe margin: 25.
+    let full_radius = 25;
+    let gpu_radius = 60; // 6 sectors * 10
 
-    tracker.spawned_cells.retain(|cell, (entity, _lod)| {
+    // Handle Full Cells
+    tracker.spawned_cells.retain(|cell, entity| {
         let dx = (cell.x - camera_cell.x).abs();
         let dy = (cell.y - camera_cell.y).abs();
         let dz = (cell.z - camera_cell.z).abs();
-        
         let dist = dx.max(dy).max(dz);
 
-        if dist > removal_radius {
+        if dist > full_radius {
+            commands.entity(*entity).despawn_recursive();
+            false
+        } else {
+            true
+        }
+    });
+
+    // Handle GPU Sectors
+    let center_sector = SectorIndex::from_cell(*camera_cell);
+    tracker.spawned_sectors.retain(|sector_idx, entity| {
+        let dx = (sector_idx.x - center_sector.x).abs();
+        let dy = (sector_idx.y - center_sector.y).abs();
+        let dz = (sector_idx.z - center_sector.z).abs();
+        let dist = dx.max(dy).max(dz);
+
+        if dist > gpu_radius {
             commands.entity(*entity).despawn_recursive();
             false
         } else {
@@ -358,46 +394,7 @@ fn despawn_distant_systems(
     });
 }
 
-// Helper to ensure deterministic parameters for both Proxy and Full System
-fn generate_star_params(rng: &mut StdRng) -> (Color, f32) {
-    let star_color = Color::srgb(rng.r#gen::<f32>(), rng.r#gen::<f32>(), rng.r#gen::<f32>());
-    let star_size = rng.gen_range(50.0..200.0);
-    (star_color, star_size)
-}
 
-fn spawn_proxy_with_data(
-    commands: &mut Commands,
-    parent_id: Entity,
-    cell: GridCell<i64>,
-    data: &StarDetails,
-    common_meshes: &Res<CommonMeshes>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-) -> Entity {
-    let root = commands.spawn((
-        Transform::default(),
-        Visibility::default(),
-        cell,
-        DistantProxy,
-    )).id();
-
-    commands.entity(parent_id).add_child(root);
-
-    commands.entity(root).with_children(|parent| {
-        parent.spawn((
-            Mesh3d(common_meshes.unit_sphere_low.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: data.color,
-                emissive: LinearRgba::from(data.color) * 15.0, 
-                unlit: true,
-                ..default()
-            })),
-            Radius(data.size),
-            Transform::IDENTITY.with_scale(Vec3::ZERO), 
-        ));
-    });
-
-    root
-}
 
 #[derive(Component)]
 pub struct SystemLabel;
@@ -484,12 +481,12 @@ fn spawn_star_with_data(
         let cell_seed = hasher.finish();
         let mut rng = StdRng::seed_from_u64(cell_seed);
         
-        let num_planets = rng.gen_range(1..=9);
+        let num_planets = rng.gen_range(1..=4);
         info!("SYSTEM {:?}: Spawning {} planets.", cell, num_planets); 
         for _i in 0..num_planets {
             let dist = rng.gen_range(5000.0..50000.0) + data.size;
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let planet_size = rng.gen_range(10.0..40.0);
+            let planet_size = rng.gen_range(5.0..15.0);
             
             let planet_seed = dist * 0.123 + angle;
             let p_type = PlanetType::from_seed(planet_seed);
@@ -503,25 +500,43 @@ fn spawn_star_with_data(
                 Mass(10_000.0), 
                 Radius(planet_size),
                 Planet,
+                crate::universe::Orbit {
+                    radius: dist,
+                    speed: rng.gen_range(0.1..0.5) * (500.0 / dist), // Slower orbits
+                    angle,
+                },
                 PlanetDetails(p_type),
                 Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
             ));
 
             if render_config.mode == RenderMode::Baked {
-                 // Bake Texture
-                 let tex = bake_planet_texture(images, &p_type, planet_seed);
-                 planet_entity.insert(MeshMaterial3d(std_materials.add(StandardMaterial {
-                     base_color_texture: Some(tex),
-                     base_color: Color::WHITE,
-                     perceptual_roughness: 0.8,
-                     ..default()
-                 })));
+                 // Async Bake
+                 let p_type_clone = p_type.clone();
+                 let thread_pool = AsyncComputeTaskPool::get();
+                 
+                 let task = thread_pool.spawn(async move {
+                     generate_planet_pixels(&p_type_clone, planet_seed)
+                 });
+                 
+                 // Placeholder Material (while loading)
+                 planet_entity.insert((
+                    MeshMaterial3d(std_materials.add(StandardMaterial {
+                        base_color: Color::WHITE, 
+                        perceptual_roughness: 1.0,
+                         ..default()
+                    })),
+                    TextureBakeTask(task)
+                 ));
+
             } else {
                  // Procedural
+                 let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
                  planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
                      base_color: col1,
                      second_color: col2,
                      seed: planet_seed,
+                     atmosphere_color: atmos_col,
+                     atmosphere_density: atmos_density,
                 })));
             }
             
@@ -553,11 +568,11 @@ fn spawn_star_with_data(
     system_root
 }
 
-fn bake_planet_texture(
-    images: &mut Assets<Image>,
+// 1. Off-thread pixel generation
+fn generate_planet_pixels(
     p_type: &PlanetType,
     seed: f32,
-) -> Handle<Image> {
+) -> Vec<u8> {
     let size = 128; // Small texture for performance/style
     let mut pixels = Vec::with_capacity(size * size * 4);
     let (c1, c2) = p_type.get_palette(); // LinearRgba
@@ -590,7 +605,15 @@ fn bake_planet_texture(
             ]);
         }
     }
+    pixels
+}
 
+// 2. Main-thread asset creation
+fn create_planet_image(
+    images: &mut Assets<Image>,
+    pixels: Vec<u8>,
+) -> Handle<Image> {
+    let size = 128;
     let image = Image::new(
         Extent3d {
             width: size as u32,
@@ -630,4 +653,18 @@ fn simple_noise(x: f32, y: f32) -> f32 {
     let h2 = c + (d - c) * u_x;
     
     h1 + (h2 - h1) * u_y
+}
+
+fn rotate_planets(
+    mut q_planets: Query<(&mut Transform, &mut crate::universe::Orbit)>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    for (mut transform, mut orbit) in q_planets.iter_mut() {
+        orbit.angle += orbit.speed * dt;
+        let x = orbit.radius * orbit.angle.cos();
+        let z = orbit.radius * orbit.angle.sin();
+        transform.translation.x = x;
+        transform.translation.z = z;
+    }
 }

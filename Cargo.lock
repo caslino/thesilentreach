@@ -3994,6 +3994,7 @@ dependencies = [
  "async-trait",
  "bevy",
  "big_space",
+ "bytemuck",
  "futures-lite",
  "rand",
  "rusqlite",

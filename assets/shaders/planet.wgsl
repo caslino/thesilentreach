@@ -5,6 +5,8 @@ struct PlanetMaterial {
     base_color: vec4<f32>,
     second_color: vec4<f32>,
     seed: f32,
+    atmosphere_color: vec4<f32>,
+    atmosphere_density: f32,
 };
 
 @group(2) @binding(0) var<uniform> material: PlanetMaterial;
@@ -127,22 +129,38 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = normalize(mesh_view_bindings::view.world_position.xyz - in.world_position.xyz);
     let normal = normalize(in.world_normal);
     
-    // Fake "Sun" direction (Assume usually (1,1,1) for generic look, or passed in)
-    // Since this is PBR replacement, we lose real lights if we don't calculate them.
-    // For simplicity, let's just do ambient + rim.
-    // Ideally we want Real Lighting. But Custom Materials in Bevy 0.14+ often support standard lighting 
-    // IF we implement Material properly or use StandardMaterial + Custom Texture. 
-    // But this is ShaderRef.
-    // We will simulate a "Lit" look.
-    
+    // Fake "Sun" direction (Assume usually (1,1,1) for generic look)
     let light_dir = normalize(vec3<f32>(1.0, 0.5, 1.0));
     let diffuse = max(dot(normal, light_dir), 0.1);
     
-    // Rim / Atmosphere
-    let fresnel = 1.0 - max(dot(view_dir, normal), 0.0);
-    let atmosphere = pow(fresnel, 4.0) * vec3<f32>(0.4, 0.6, 1.0);
+    // Apply Diffuse Lighting first
+    color = color * diffuse;
+
+    // 4. Atmospheric Scattering (Rim / Haze)
+    // Calculate Fresnel effect
+    let NdotV = max(dot(normal, view_dir), 0.0);
     
-    color = color * diffuse + atmosphere;
+    // "Rim" creates the glowing edge
+    let rim_strength = 1.0 - NdotV; 
+    let rim = pow(rim_strength, 4.0);
     
+    // "Scatter" mimics the atmosphere getting thicker at glancing angles, but also visible on day side.
+    // We mix it based on density
+    let atmosphere_color = material.atmosphere_color.rgb;
+    let density = material.atmosphere_density;
+
+    // Simple scattering approximation:
+    // Mix surface color with atmosphere color based on Fresnel and Density.
+    // Boosted at the rim (horizon).
+    
+    let scatter_factor = pow(rim_strength, 2.5) * density * 2.0;
+    
+    // Additive blend for light scattering (makes it look glowing/hazy)
+    color = color + (atmosphere_color * scatter_factor);
+    
+    // "Daylight" Scattering: slightly tint the whole lit side
+    let day_scatter = atmosphere_color * 0.2 * density * diffuse;
+    color = color + day_scatter;
+
     return vec4<f32>(color, 1.0);
 }

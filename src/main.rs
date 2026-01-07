@@ -9,6 +9,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 use thesilentreach::universe::{UniversePlugin, RenderConfig, RenderMode};
 
+mod effects;
+
+
 fn main() {
     // CLI Args Parsing
     let args: Vec<String> = std::env::args().collect();
@@ -46,6 +49,7 @@ fn main() {
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(UniversePlugin)
         .add_plugins(PlayerPlugin)
+        .add_plugins(effects::warp::WarpPlugin)
         .add_plugins(PersistencePlugin)
         .add_systems(Startup, check_gpu)
         .run();

@@ -208,7 +208,7 @@ fn handle_star_clicked_event(
              target_cell = Some(*cell);
              
              // Find Nearest Entity in this cell
-             if let Some((root_entity, _)) = tracker.spawned_cells.get(cell) {
+             if let Some(root_entity) = tracker.spawned_cells.get(cell) {
                  if let Ok(children) = q_children.get(*root_entity) {
                      // Need root transform to get correct relative position
                      // (Children are relative to System Root + System Root is relative to Camera/Origin)
@@ -424,7 +424,7 @@ fn console_input_system(
         // If no entity (Enter key), try to find Star in current cell
         if entity_to_check.is_none() {
             if let Some(cell) = state.target_cell {
-                if let Some((root_entity, _)) = tracker.spawned_cells.get(&cell) {
+                if let Some(root_entity) = tracker.spawned_cells.get(&cell) {
                     // Find child with StarDetails
                     if let Ok(children) = q_children.get(*root_entity) {
                         for child in children {
