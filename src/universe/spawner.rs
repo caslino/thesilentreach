@@ -25,6 +25,7 @@ impl Plugin for StarSystemSpawnerPlugin {
            .init_resource::<GalaxyMap>()
            .init_resource::<CommonMeshes>()
            .init_resource::<SectorTaskTracker>()
+           .init_resource::<NoiseTextures>()
            .add_systems(Update, (
                manage_galaxy_sectors, 
                handle_generation_tasks, 
@@ -53,6 +54,24 @@ impl FromWorld for CommonMeshes {
         CommonMeshes {
             unit_sphere_low: meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap()),
             unit_sphere_high: meshes.add(Sphere::new(1.0).mesh().ico(4).unwrap()),
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct NoiseTextures {
+    pub crater_map: Handle<Image>,
+    pub ridge_map: Handle<Image>,
+    pub sediment_map: Handle<Image>,
+}
+
+impl FromWorld for NoiseTextures {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.resource::<AssetServer>();
+        NoiseTextures {
+            crater_map: asset_server.load("textures/crater_map.png"),
+            ridge_map: asset_server.load("textures/ridge_map.png"),
+            sediment_map: asset_server.load("textures/sediment_map.png"),
         }
     }
 }
@@ -242,6 +261,7 @@ fn sync_universe_view(
     render_config: Res<RenderConfig>,
     mut images: ResMut<Assets<Image>>,
     seed: Res<UniverseSeed>,
+    noise_textures: Res<NoiseTextures>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     let Ok(big_space_entity) = q_big_space.get_single() else { return; };
@@ -328,7 +348,8 @@ fn sync_universe_view(
                                     &mut std_materials,
                                     &db,
                                     &render_config,
-                                    &mut images
+                                    &mut images,
+                                    &noise_textures
                                 );
                                 tracker.spawned_cells.insert(*cell, entity);
                             }
@@ -411,6 +432,7 @@ fn spawn_star_with_data(
     db: &Database,
     render_config: &Res<RenderConfig>,
     images: &mut ResMut<Assets<Image>>,
+    noise_textures: &Res<NoiseTextures>,
 ) -> Entity {
     // Determine Names
     let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
@@ -537,6 +559,9 @@ fn spawn_star_with_data(
                      seed: planet_seed,
                      atmosphere_color: atmos_col,
                      atmosphere_density: atmos_density,
+                     crater_map: noise_textures.crater_map.clone(),
+                     ridge_map: noise_textures.ridge_map.clone(),
+                     sediment_map: noise_textures.sediment_map.clone(),
                 })));
             }
             
