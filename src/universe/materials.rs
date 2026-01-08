@@ -33,6 +33,16 @@ pub struct PlanetMaterial {
     pub atmosphere_color: LinearRgba,
     #[uniform(0)]
     pub atmosphere_density: f32,
+
+    #[texture(1)]
+    #[sampler(2)]
+    pub crater_map: Handle<Image>,
+    #[texture(3)]
+    #[sampler(4)]
+    pub ridge_map: Handle<Image>,
+    #[texture(5)]
+    #[sampler(6)]
+    pub sediment_map: Handle<Image>,
 }
 
 impl Material for PlanetMaterial {
