@@ -26,6 +26,7 @@ impl Plugin for StarSystemSpawnerPlugin {
            .init_resource::<CommonMeshes>()
            .init_resource::<SectorTaskTracker>()
            .init_resource::<NoiseTextures>()
+           .init_resource::<PlanetTextureAtlas>()
            .add_systems(Update, (
                manage_galaxy_sectors, 
                handle_generation_tasks, 
@@ -72,6 +73,55 @@ impl FromWorld for NoiseTextures {
             crater_map: asset_server.load("textures/crater_map.png"),
             ridge_map: asset_server.load("textures/ridge_map.png"),
             sediment_map: asset_server.load("textures/sediment_map.png"),
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct PlanetTextureAtlas {
+    pub atlas_handle: Handle<Image>,
+    pub available_slots: Vec<usize>,
+    pub slot_map: HashMap<Entity, usize>,
+    pub grid_size: u32,
+    pub slot_size: u32,
+    pub atlas_size: u32,
+}
+
+impl FromWorld for PlanetTextureAtlas {
+    fn from_world(world: &mut World) -> Self {
+        let mut images = world.resource_mut::<Assets<Image>>();
+        let atlas_size = 2048;
+        let slot_size = 128;
+        let grid_size = atlas_size / slot_size;
+        let num_slots = (grid_size * grid_size) as usize;
+
+        // Initialize atlas image (transparent black)
+        let pixels = vec![0; (atlas_size * atlas_size * 4) as usize];
+        let image = Image::new(
+            Extent3d {
+                width: atlas_size,
+                height: atlas_size,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            pixels,
+            TextureFormat::Rgba8UnormSrgb,
+            bevy::render::render_asset::RenderAssetUsages::MAIN_WORLD | bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD,
+        );
+        let atlas_handle = images.add(image);
+
+        let mut available_slots = Vec::with_capacity(num_slots);
+        for i in (0..num_slots).rev() {
+            available_slots.push(i);
+        }
+
+        PlanetTextureAtlas {
+            atlas_handle,
+            available_slots,
+            slot_map: HashMap::new(),
+            grid_size,
+            slot_size,
+            atlas_size,
         }
     }
 }
@@ -167,19 +217,51 @@ fn handle_texture_tasks(
     mut commands: Commands,
     mut q_tasks: Query<(Entity, &mut TextureBakeTask, &PlanetDetails, &Radius)>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    mut atlas: ResMut<PlanetTextureAtlas>,
+    noise_textures: Res<NoiseTextures>,
 ) {
-    for (entity, mut task, p_details, radius) in q_tasks.iter_mut() {
+    for (entity, mut task, _p_details, _radius) in q_tasks.iter_mut() {
         if let Some(pixels) = future::block_on(future::poll_once(&mut task.0)) {
-            // Task Complete: Create Image and Material
-            let image = create_planet_image(&mut images, pixels);
+            // Task Complete: Allocate Slot
+            let slot_index = if let Some(idx) = atlas.available_slots.pop() {
+                idx
+            } else {
+                warn!("Planet Texture Atlas Full! Fallback not implemented yet.");
+                continue;
+            };
             
-            // Assuming baked planets used StandardMaterial (from logic in spawn_star_with_data)
-            let material = materials.add(StandardMaterial {
-                base_color_texture: Some(image),
-                base_color: Color::WHITE,
-                perceptual_roughness: 0.8,
-                ..default()
+            atlas.slot_map.insert(entity, slot_index);
+
+            let grid_size = atlas.grid_size;
+            let slot_size = atlas.slot_size;
+            let atlas_size = atlas.atlas_size;
+
+            if let Some(atlas_image) = images.get_mut(&atlas.atlas_handle) {
+                bake_planet_texture(atlas_image, &pixels, slot_index, grid_size, slot_size, atlas_size);
+            }
+
+            // Calculate UV Offset/Scale
+            let uv_scale = 1.0 / grid_size as f32;
+            let row = (slot_index as u32 / grid_size) as f32;
+            let col = (slot_index as u32 % grid_size) as f32;
+
+            let offset = Vec2::new(col * uv_scale, row * uv_scale);
+
+            // Create PlanetMaterial using Atlas
+            let material = planet_materials.add(PlanetMaterial {
+                base_color: LinearRgba::WHITE, // Not used heavily if using atlas? Or tinted?
+                second_color: LinearRgba::BLACK,
+                seed: 0.0, // Irrelevant for atlas
+                atmosphere_color: LinearRgba::new(0.5, 0.7, 1.0, 1.0), // Keep atmosphere?
+                atmosphere_density: 0.2, // Default
+                atlas_offset: offset,
+                atlas_scale: uv_scale,
+                use_atlas: 1,
+                atlas_texture: atlas.atlas_handle.clone(),
+                crater_map: noise_textures.crater_map.clone(),
+                ridge_map: noise_textures.ridge_map.clone(),
+                sediment_map: noise_textures.sediment_map.clone(),
             });
 
             // Safely apply changes only if entity still exists
@@ -262,6 +344,7 @@ fn sync_universe_view(
     mut images: ResMut<Assets<Image>>,
     seed: Res<UniverseSeed>,
     noise_textures: Res<NoiseTextures>,
+    atlas: Res<PlanetTextureAtlas>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     let Ok(big_space_entity) = q_big_space.get_single() else { return; };
@@ -349,7 +432,8 @@ fn sync_universe_view(
                                     &db,
                                     &render_config,
                                     &mut images,
-                                    &noise_textures
+                                    &noise_textures,
+                                    &atlas,
                                 );
                                 tracker.spawned_cells.insert(*cell, entity);
                             }
@@ -369,6 +453,8 @@ fn despawn_distant_systems(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
+    mut atlas: ResMut<PlanetTextureAtlas>,
+    q_children: Query<&Children>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else { return; };
     let removal_radius = 2; // Keep closer than previously (previously 6). Now > 1 is Distant/GPU? 
@@ -391,6 +477,15 @@ fn despawn_distant_systems(
         let dist = dx.max(dy).max(dz);
 
         if dist > full_radius {
+            // Check for children (planets) that might have atlas slots
+            if let Ok(children) = q_children.get(*entity) {
+                for child in children.iter() {
+                    if let Some(slot) = atlas.slot_map.remove(child) {
+                        atlas.available_slots.push(slot);
+                    }
+                }
+            }
+
             commands.entity(*entity).despawn_recursive();
             false
         } else {
@@ -433,6 +528,7 @@ fn spawn_star_with_data(
     render_config: &Res<RenderConfig>,
     images: &mut ResMut<Assets<Image>>,
     noise_textures: &Res<NoiseTextures>,
+    atlas: &Res<PlanetTextureAtlas>,
 ) -> Entity {
     // Determine Names
     let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
@@ -562,6 +658,10 @@ fn spawn_star_with_data(
                      crater_map: noise_textures.crater_map.clone(),
                      ridge_map: noise_textures.ridge_map.clone(),
                      sediment_map: noise_textures.sediment_map.clone(),
+                     atlas_offset: Vec2::ZERO,
+                     atlas_scale: 1.0,
+                     use_atlas: 0,
+                     atlas_texture: atlas.atlas_handle.clone(), // Bind it even if not used
                 })));
             }
             
@@ -633,24 +733,37 @@ fn generate_planet_pixels(
     pixels
 }
 
-// 2. Main-thread asset creation
-fn create_planet_image(
-    images: &mut Assets<Image>,
-    pixels: Vec<u8>,
-) -> Handle<Image> {
-    let size = 128;
-    let image = Image::new(
-        Extent3d {
-            width: size as u32,
-            height: size as u32,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        pixels,
-        TextureFormat::Rgba8UnormSrgb,
-        bevy::asset::RenderAssetUsages::RENDER_WORLD, 
-    );
-    images.add(image)
+// 2. Main-thread atlas baking
+fn bake_planet_texture(
+    atlas: &mut Image,
+    pixels: &[u8],
+    slot_index: usize,
+    grid_size: u32,
+    slot_size: u32,
+    atlas_size: u32,
+) {
+    let row = slot_index as u32 / grid_size;
+    let col = slot_index as u32 % grid_size;
+
+    let start_x = col * slot_size;
+    let start_y = row * slot_size;
+
+    // Copy pixels row by row
+    let bytes_per_pixel = 4;
+    let atlas_stride = (atlas_size * bytes_per_pixel) as usize;
+    let slot_stride = (slot_size * bytes_per_pixel) as usize;
+
+    for y in 0..slot_size {
+        let atlas_y = start_y + y;
+        let atlas_offset = (atlas_y as usize * atlas_stride) + (start_x as usize * bytes_per_pixel as usize);
+
+        let slot_offset = (y as usize * slot_stride);
+
+        if atlas_offset + slot_stride <= atlas.data.len() && slot_offset + slot_stride <= pixels.len() {
+            atlas.data[atlas_offset..atlas_offset + slot_stride]
+                .copy_from_slice(&pixels[slot_offset..slot_offset + slot_stride]);
+        }
+    }
 }
 
 // Re-implement simple noise locally to avoid pub sharing issues
