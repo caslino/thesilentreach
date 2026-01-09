@@ -7,6 +7,9 @@ struct PlanetMaterial {
     seed: f32,
     atmosphere_color: vec4<f32>,
     atmosphere_density: f32,
+    atlas_offset: vec2<f32>,
+    atlas_scale: f32,
+    use_atlas: u32,
 };
 
 @group(2) @binding(0) var<uniform> material: PlanetMaterial;
@@ -16,6 +19,8 @@ struct PlanetMaterial {
 @group(2) @binding(4) var ridge_sampler: sampler;
 @group(2) @binding(5) var sediment_map: texture_2d<f32>;
 @group(2) @binding(6) var sediment_sampler: sampler;
+@group(2) @binding(7) var atlas_texture: texture_2d<f32>;
+@group(2) @binding(8) var atlas_sampler: sampler;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -92,61 +97,61 @@ fn hybrid_sampling(uv: vec2<f32>, seed: f32) -> f32 {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // 1. Terrain Noise (Hybrid)
-    // Map world pos to UV for sphere (simple approximation or use mesh UVs)
-    // Mesh UVs are usually good for spheres if unwrapped properly.
-    // The previous shader used world position for 3D noise.
-    // Here we use UVs with the hybrid sampling.
-    
-    let n = hybrid_sampling(in.uv, material.seed);
-    
-    // 2. Mix Land/Sea
-    // Threshold usually around 0.5 for water
-    let water_level = 0.52;
-    let grass_level = 0.58;
-    
-    // Smoothstep for anti-aliased coastlines
-    // let is_land = smoothstep(water_level - 0.01, water_level + 0.01, n);
-    
-    // Colors
-    let deep_ocean = vec3<f32>(0.0, 0.05, 0.2);
-    let shallow_ocean = vec3<f32>(0.0, 0.4, 0.7);
-    let beach = vec3<f32>(0.8, 0.7, 0.5);
-    let grass = material.base_color.rgb;
-    let forest = material.second_color.rgb;
-    let mountain = vec3<f32>(0.5, 0.5, 0.5);
-    let snow = vec3<f32>(1.0, 1.0, 1.0);
-    
-    // Sediment sample for color variation
-    // Use a different scale/rotation for sediment color map to decouple from height
-    let sediment_val = textureSample(sediment_map, sediment_sampler, fract(in.uv * 2.0 + vec2<f32>(material.seed))).r;
+    var color: vec3<f32>;
 
-    // Ocean Gradient
-    var color = mix(deep_ocean, shallow_ocean, n / water_level);
-    
-    // Add sediment variegation to ocean
-    color = mix(color, color * 1.2, sediment_val * 0.5);
+    if (material.use_atlas != 0u) {
+        // --- ATLAS SAMPLING ---
+        let atlas_uv = in.uv * material.atlas_scale + material.atlas_offset;
+        color = textureSample(atlas_texture, atlas_sampler, atlas_uv).rgb;
+    } else {
+        // --- PROCEDURAL GENERATION ---
 
-    // Land Gradient
-    if n > water_level {
-        if n < grass_level {
-            // Beach
-            color = beach;
-        } else if n < 0.75 {
-            // Grass / Forest
-            // Use ridge/sediment to mix grass and forest
-            let mix_factor = smoothstep(grass_level, 0.75, n);
-            color = mix(grass, forest, mix_factor);
+        // 1. Terrain Noise (Hybrid)
+        let n = hybrid_sampling(in.uv, material.seed);
 
-            // Add sediment variegation
-             color = mix(color, color * 0.9, sediment_val);
+        // 2. Mix Land/Sea
+        // Threshold usually around 0.5 for water
+        let water_level = 0.52;
+        let grass_level = 0.58;
 
-        } else if n < 0.85 {
-            // Mountain
-            color = mountain;
-        } else {
-            // Snow
-            color = snow;
+        // Colors
+        let deep_ocean = vec3<f32>(0.0, 0.05, 0.2);
+        let shallow_ocean = vec3<f32>(0.0, 0.4, 0.7);
+        let beach = vec3<f32>(0.8, 0.7, 0.5);
+        let grass = material.base_color.rgb;
+        let forest = material.second_color.rgb;
+        let mountain = vec3<f32>(0.5, 0.5, 0.5);
+        let snow = vec3<f32>(1.0, 1.0, 1.0);
+
+        // Sediment sample for color variation
+        let sediment_val = textureSample(sediment_map, sediment_sampler, fract(in.uv * 2.0 + vec2<f32>(material.seed))).r;
+
+        // Ocean Gradient
+        color = mix(deep_ocean, shallow_ocean, n / water_level);
+
+        // Add sediment variegation to ocean
+        color = mix(color, color * 1.2, sediment_val * 0.5);
+
+        // Land Gradient
+        if n > water_level {
+            if n < grass_level {
+                // Beach
+                color = beach;
+            } else if n < 0.75 {
+                // Grass / Forest
+                let mix_factor = smoothstep(grass_level, 0.75, n);
+                color = mix(grass, forest, mix_factor);
+
+                // Add sediment variegation
+                 color = mix(color, color * 0.9, sediment_val);
+
+            } else if n < 0.85 {
+                // Mountain
+                color = mountain;
+            } else {
+                // Snow
+                color = snow;
+            }
         }
     }
     
