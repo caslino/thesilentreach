@@ -241,7 +241,6 @@ fn handle_star_clicked_event(
     if let Some(cell) = target_cell {
         state.active = true;
         state.target_cell = Some(cell);
-        info!("Console Opened. Target Cell: {:?}, Entity: {:?}", cell, target_entity); // DEBUG
         state.target_entity = target_entity;
         state.focus = ConsoleFocus::Name; // Default focus
         
