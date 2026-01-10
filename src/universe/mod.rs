@@ -116,10 +116,27 @@ pub struct SystemSavedEvent {
     pub name: String,
 }
 
+#[cfg(test)]
+mod seed_test;
+
+fn get_universe_seed() -> u64 {
+    if let Ok(s) = std::env::var("UNIVERSE_SEED") {
+        s.parse::<u64>().unwrap_or_else(|_| {
+            warn!("Invalid UNIVERSE_SEED environment variable, using random seed.");
+            rand::random()
+        })
+    } else {
+        rand::random()
+    }
+}
+
 impl Plugin for UniversePlugin {
     fn build(&self, app: &mut App) {
+        let seed = get_universe_seed();
+        info!("Universe Seed: {}", seed);
+
         app
-            .insert_resource(UniverseSeed(12345)) // Fixed seed for now
+            .insert_resource(UniverseSeed(seed))
             .add_plugins(BigSpacePlugin::<i64>::default())
             .add_systems(PreStartup, setup_universe)
             .add_plugins(spawner::StarSystemSpawnerPlugin)
