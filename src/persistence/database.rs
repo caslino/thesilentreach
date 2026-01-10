@@ -53,8 +53,8 @@ impl Database {
     pub fn open() -> Result<Self> {
         let conn = Connection::open("universe.db")?;
         
-        // Discoveries Table
-        conn.execute(
+        // Execute schema creation in a batch
+        conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS discoveries (
                 id INTEGER PRIMARY KEY,
                 cell_x INTEGER NOT NULL,
@@ -66,25 +66,19 @@ impl Database {
                 date TEXT NOT NULL,
                 object_type TEXT NOT NULL,
                 UNIQUE(cell_x, cell_y, cell_z)
-            )",
-            [],
-        )?;
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_discovery_coords ON discoveries (cell_x, cell_y, cell_z);
 
-        // Sectors Table
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS sectors (
+            CREATE TABLE IF NOT EXISTS sectors (
                 x INTEGER NOT NULL,
                 y INTEGER NOT NULL,
                 z INTEGER NOT NULL,
                 data TEXT NOT NULL,
                 PRIMARY KEY(x, y, z)
-            )",
-            [],
-        )?;
+            );
+            CREATE INDEX IF NOT EXISTS idx_sector_coords ON sectors (x, y, z);
 
-        // Player State Table (Single Row)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS player_state (
+            CREATE TABLE IF NOT EXISTS player_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 cell_x INTEGER NOT NULL,
                 cell_y INTEGER NOT NULL,
@@ -96,8 +90,7 @@ impl Database {
                 vel_y REAL NOT NULL,
                 vel_z REAL NOT NULL,
                 timestamp INTEGER NOT NULL
-            )",
-            [],
+            );"
         )?;
 
         Ok(Database {

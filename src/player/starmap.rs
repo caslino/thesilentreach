@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use crate::persistence::{Database, CurrentSystemData};
 use crate::player::interaction::ConsoleState;
+use crate::universe::SystemSavedEvent;
 
 pub struct StarMapPlugin;
 
@@ -16,6 +17,9 @@ struct StarMapRoot;
 
 #[derive(Component)]
 struct StarMapContent;
+
+#[derive(Component)]
+struct StarMapDirty;
 
 fn setup_starmap(mut commands: Commands) {
     // Full screen overlay, hidden by default
@@ -66,16 +70,20 @@ fn setup_starmap(mut commands: Commands) {
 }
 
 fn toggle_starmap(
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    mut q_root: Query<&mut Visibility, With<StarMapRoot>>,
+    mut q_root: Query<(Entity, &mut Visibility), With<StarMapRoot>>,
     console_state: Res<ConsoleState>,
 ) {
     if console_state.active { return; }
     
     if keys.just_pressed(KeyCode::KeyM) {
-        if let Ok(mut vis) = q_root.get_single_mut() {
+        if let Ok((entity, mut vis)) = q_root.get_single_mut() {
             *vis = match *vis {
-                Visibility::Hidden => Visibility::Visible,
+                Visibility::Hidden => {
+                    commands.entity(entity).insert(StarMapDirty);
+                    Visibility::Visible
+                },
                 _ => Visibility::Hidden,
             };
         }
@@ -84,18 +92,26 @@ fn toggle_starmap(
 
 fn update_starmap_content(
     mut commands: Commands,
-    q_root: Query<&Visibility, With<StarMapRoot>>,
+    q_root: Query<(Entity, &Visibility, Option<&StarMapDirty>), With<StarMapRoot>>,
     q_content: Query<Entity, With<StarMapContent>>,
     db: Res<Database>,
     current_data: Res<CurrentSystemData>,
+    mut events: EventReader<SystemSavedEvent>,
 ) {
-    let Ok(vis) = q_root.get_single() else { return; };
+    let Ok((root_entity, vis, dirty)) = q_root.get_single() else { return; };
     if *vis == Visibility::Hidden { return; }
     
     // Only update if visible (Optimization: In real app, only update on open or dirty)
-    // For now, we clear and redraw every frame or we can add a 'Dirty' check for the map separately.
-    // Let's just do it; excessive clearing is bad but safe for MVP.
-    // TODO: optimization - only run when just opened or dirty.
+    let system_saved = !events.is_empty();
+    events.clear(); // Consume events
+
+    if dirty.is_none() && !current_data.is_changed() && !system_saved {
+        return;
+    }
+
+    if dirty.is_some() {
+        commands.entity(root_entity).remove::<StarMapDirty>();
+    }
 
     let Ok(content_entity) = q_content.get_single() else { return; };
     commands.entity(content_entity).despawn_descendants();
