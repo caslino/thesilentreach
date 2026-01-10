@@ -10,6 +10,7 @@ pub mod sky;
 pub mod materials;
 pub mod star_common;
 pub mod gpu_star_renderer;
+pub mod pulsar;
 
 use self::materials::{StarMaterial, PlanetMaterial};
 
@@ -142,6 +143,7 @@ impl Plugin for UniversePlugin {
             .add_plugins(spawner::StarSystemSpawnerPlugin)
             .add_plugins(sky::SkyPlugin)
             .add_plugins(gpu_star_renderer::GPUStarPlugin)
+            .add_plugins(pulsar::PulsarPlugin)
             .add_plugins(MaterialPlugin::<StarMaterial>::default())
             .add_plugins(MaterialPlugin::<PlanetMaterial>::default())
             .add_event::<StarClicked>()
