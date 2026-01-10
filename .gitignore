@@ -1,3 +1,6 @@
 /target
 universe.db
 universe.db
+assets/.DS_Store
+.gitignore
+.DS_Store

@@ -1,22 +1,21 @@
 use bevy::prelude::*;
-use serde::{Serialize, Deserialize};
-use big_space::{BigSpacePlugin, ReferenceFrame, BigSpaceCommands};
+use big_space::{BigSpaceCommands, BigSpacePlugin, ReferenceFrame};
+use serde::{Deserialize, Serialize};
 
 pub struct UniversePlugin;
 
-pub mod spawner;
-pub mod physics;
-pub mod sky;
-pub mod materials;
-pub mod star_common;
 pub mod gpu_star_renderer;
+pub mod materials;
+pub mod physics;
 pub mod pulsar;
+pub mod sky;
+pub mod spawner;
+pub mod star_common;
 
-use self::materials::{StarMaterial, PlanetMaterial};
+use self::materials::{PlanetMaterial, StarMaterial};
 
 #[derive(Resource)]
 pub struct GameWorld(pub Entity);
-
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct UniverseSeed(pub u64);
@@ -69,18 +68,35 @@ pub enum PlanetType {
 impl PlanetType {
     pub fn from_seed(seed: f32) -> Self {
         let n = seed.fract();
-        if n < 0.3 { PlanetType::Ice }
-        else if n < 0.6 { PlanetType::GasGiant }
-        else if n < 0.8 { PlanetType::Terran }
-        else { PlanetType::Magma }
+        if n < 0.3 {
+            PlanetType::Ice
+        } else if n < 0.6 {
+            PlanetType::GasGiant
+        } else if n < 0.8 {
+            PlanetType::Terran
+        } else {
+            PlanetType::Magma
+        }
     }
 
     pub fn get_palette(&self) -> (LinearRgba, LinearRgba) {
         match self {
-            PlanetType::Terran => (LinearRgba::from(Color::srgb(0.2, 0.8, 0.2)), LinearRgba::from(Color::srgb(0.1, 0.5, 0.1))), // Green/Forest
-            PlanetType::Ice => (LinearRgba::from(Color::srgb(0.8, 0.9, 1.0)), LinearRgba::from(Color::srgb(0.5, 0.7, 0.9))), // White/Cyan
-            PlanetType::Magma => (LinearRgba::from(Color::srgb(1.0, 0.2, 0.0)), LinearRgba::from(Color::srgb(0.5, 0.0, 0.0))), // Red/DarkRed
-            PlanetType::GasGiant => (LinearRgba::from(Color::srgb(0.8, 0.6, 0.4)), LinearRgba::from(Color::srgb(0.5, 0.3, 0.2))), // Beige/Brown
+            PlanetType::Terran => (
+                LinearRgba::from(Color::srgb(0.2, 0.8, 0.2)),
+                LinearRgba::from(Color::srgb(0.1, 0.5, 0.1)),
+            ), // Green/Forest
+            PlanetType::Ice => (
+                LinearRgba::from(Color::srgb(0.8, 0.9, 1.0)),
+                LinearRgba::from(Color::srgb(0.5, 0.7, 0.9)),
+            ), // White/Cyan
+            PlanetType::Magma => (
+                LinearRgba::from(Color::srgb(1.0, 0.2, 0.0)),
+                LinearRgba::from(Color::srgb(0.5, 0.0, 0.0)),
+            ), // Red/DarkRed
+            PlanetType::GasGiant => (
+                LinearRgba::from(Color::srgb(0.8, 0.6, 0.4)),
+                LinearRgba::from(Color::srgb(0.5, 0.3, 0.2)),
+            ), // Beige/Brown
         }
     }
 
@@ -96,7 +112,7 @@ impl PlanetType {
     pub fn get_atmosphere_color(&self) -> (LinearRgba, f32) {
         match self {
             PlanetType::Terran => (LinearRgba::from(Color::srgb(0.0, 0.4, 0.8)), 1.0), // Blue Atmosphere
-            PlanetType::Ice => (LinearRgba::from(Color::srgb(0.6, 0.9, 1.0)), 0.6), // Cyan mist
+            PlanetType::Ice => (LinearRgba::from(Color::srgb(0.6, 0.9, 1.0)), 0.6),    // Cyan mist
             PlanetType::Magma => (LinearRgba::from(Color::srgb(1.0, 0.3, 0.0)), 1.2), // Thick Orange/Red
             PlanetType::GasGiant => (LinearRgba::from(Color::srgb(0.7, 0.5, 0.3)), 1.5), // Heavy Beige
         }
@@ -136,8 +152,7 @@ impl Plugin for UniversePlugin {
         let seed = get_universe_seed();
         info!("Universe Seed: {}", seed);
 
-        app
-            .insert_resource(UniverseSeed(seed))
+        app.insert_resource(UniverseSeed(seed))
             .add_plugins(BigSpacePlugin::<i64>::default())
             .add_systems(PreStartup, setup_universe)
             .add_plugins(spawner::StarSystemSpawnerPlugin)
@@ -147,7 +162,12 @@ impl Plugin for UniversePlugin {
             .add_plugins(MaterialPlugin::<StarMaterial>::default())
             .add_plugins(MaterialPlugin::<PlanetMaterial>::default())
             .add_event::<StarClicked>()
-            .add_event::<SystemSavedEvent>();
+            .add_event::<SystemSavedEvent>()
+            // Global Ambient Light so things aren't pitch black
+            .insert_resource(AmbientLight {
+                color: Color::WHITE,
+                brightness: 80.0,
+            });
     }
 }
 
@@ -156,20 +176,20 @@ pub fn setup_universe(mut commands: Commands) {
 }
 
 pub const SECTOR_SIZE: i64 = 10;
-        
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-    pub struct SectorIndex {
-        pub x: i64,
-        pub y: i64,
-        pub z: i64,
-    }
 
-    impl SectorIndex {
-        pub fn from_cell(cell: big_space::GridCell<i64>) -> Self {
-            Self {
-                x: cell.x.div_euclid(SECTOR_SIZE),
-                y: cell.y.div_euclid(SECTOR_SIZE),
-                z: cell.z.div_euclid(SECTOR_SIZE),
-            }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct SectorIndex {
+    pub x: i64,
+    pub y: i64,
+    pub z: i64,
+}
+
+impl SectorIndex {
+    pub fn from_cell(cell: big_space::GridCell<i64>) -> Self {
+        Self {
+            x: cell.x.div_euclid(SECTOR_SIZE),
+            y: cell.y.div_euclid(SECTOR_SIZE),
+            z: cell.z.div_euclid(SECTOR_SIZE),
         }
     }
+}
