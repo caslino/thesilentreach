@@ -17,10 +17,12 @@ pub struct SpawnLocation {
     pub cell: GridCell<i64>,
     pub local_pos: Vec3,
     pub velocity: Option<Vec3>, // New field for loading state
+    pub throttle: f32,          // Added throttle persistence
     pub has_spawned: bool,
 }
 
-use crate::player::camera::{ZenCamera, Velocity};
+use crate::player::camera::{Velocity, ZenCamera};
+use crate::player::input::VehicleInput;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct PersistencePlugin;
@@ -31,26 +33,26 @@ impl Plugin for PersistencePlugin {
         let db = Database::open().expect("Failed to open SQLite database");
 
         app.insert_resource(db)
-           .init_resource::<SpawnLocation>()
-           .init_resource::<CurrentSystemData>()
-           .add_systems(PreStartup, load_player_state) // Load before camera setup
-           .add_systems(Update, (check_system_change, auto_save_system));
+            .init_resource::<SpawnLocation>()
+            .init_resource::<CurrentSystemData>()
+            .add_systems(PreStartup, load_player_state) // Load before camera setup
+            .add_systems(Update, (check_system_change, auto_save_system));
     }
 }
 
-fn load_player_state(
-    db: Res<Database>,
-    mut spawn_loc: ResMut<SpawnLocation>,
-) {
+fn load_player_state(db: Res<Database>, mut spawn_loc: ResMut<SpawnLocation>) {
     // 1. Check DB
     if let Ok(Some(state)) = db.get_player_state() {
         // 2. Calculate Catch-up
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         let delta_time = current_time - state.timestamp;
-        
+
         let local_pos = Vec3::new(state.local_x, state.local_y, state.local_z);
         let velocity = Vec3::new(state.vel_x, state.vel_y, state.vel_z);
-        
+
         // Simple linear projection for "catch up" (ignoring gravity for simplicity during catchup)
         // If delta is huge (days), maybe cap it? For now, we trust the void.
         // Actually, preventing moving millions of km into a planet might be good.
@@ -59,75 +61,81 @@ fn load_player_state(
         // Let's assume linear drift.
         // catch-up logic
         let drift_time = delta_time.clamp(0, 86400 * 7) as f32; // Limit to 1 week
-        
+
         let mut final_pos = local_pos;
         let mut final_vel = velocity;
-        
+
         // 1. Check for Star (Dominant Gravity)
         let cell = GridCell::new(state.cell_x, state.cell_y, state.cell_z);
         if has_star(&cell) {
             // Star Assumptions (Must match spawner.rs)
             let star_mass = 1_000_000.0;
             let mu = crate::universe::physics::GRAVITY_CONSTANT * star_mass;
-            
+
             let r_vec = local_pos; // Star is at 0,0,0
             let r = r_vec.length();
             let v_sq = velocity.length_squared();
-            
+
             // Specific Orbital Energy: E = v^2/2 - mu/r
             let energy = v_sq / 2.0 - mu / r;
-            
+
             if energy < 0.0 && r > 100.0 {
-                 // Elliptical Orbit (Stable)
-                 // We will approximate with a mean motion rotation for circular/near-circular orbits
-                 // This is a "Game Feel" approximation rather than full Kepler equation solver for stability
-                 
-                 // Mean Motion (n) = sqrt(mu / a^3). severe approx: a ~= r
-                 let n = (mu / r.powi(3)).sqrt();
-                 let angle = n * drift_time;
-                 
-                 // Rotate Position and Velocity
-                 // Axis of rotation? Cross product of r and v
-                 let angular_momentum = r_vec.cross(velocity);
-                 if angular_momentum.length_squared() > 0.001 {
-                     let axis = angular_momentum.normalize();
-                     let rot = Quat::from_axis_angle(axis, angle);
-                     
-                     final_pos = rot * local_pos;
-                     final_vel = rot * velocity;
-                     
-                     info!("PERSISTENCE: Applied Orbital Catch-up. Angle: {:.2} rads", angle);
-                     
-                     // Orbital Decay (Simulate drag/tidal forces)
-                     // Decay by 0.1% per hour? 
-                     // drift_time is seconds. 1 hour = 3600s.
-                     // Let's do a very small linear decay or exponential.
-                     // decay_factor = 1.0 - (drift_time * 0.000001); // 1e-6 per second
-                     
-                     let decay_rate = 0.0000005; // Very subtle decay
-                     let decay_factor = (1.0 - decay_rate * drift_time).max(0.90); // Cap at 10% loss per session for safety
-                     
-                     final_pos *= decay_factor;
-                     
-                 } else {
-                     // Straight line fallback
-                      final_pos += velocity * drift_time;
-                 }
+                // Elliptical Orbit (Stable)
+                // We will approximate with a mean motion rotation for circular/near-circular orbits
+                // This is a "Game Feel" approximation rather than full Kepler equation solver for stability
+
+                // Mean Motion (n) = sqrt(mu / a^3). severe approx: a ~= r
+                let n = (mu / r.powi(3)).sqrt();
+                let angle = n * drift_time;
+
+                // Rotate Position and Velocity
+                // Axis of rotation? Cross product of r and v
+                let angular_momentum = r_vec.cross(velocity);
+                if angular_momentum.length_squared() > 0.001 {
+                    let axis = angular_momentum.normalize();
+                    let rot = Quat::from_axis_angle(axis, angle);
+
+                    final_pos = rot * local_pos;
+                    final_vel = rot * velocity;
+
+                    info!(
+                        "PERSISTENCE: Applied Orbital Catch-up. Angle: {:.2} rads",
+                        angle
+                    );
+
+                    // Orbital Decay (Simulate drag/tidal forces)
+                    // Decay by 0.1% per hour?
+                    // drift_time is seconds. 1 hour = 3600s.
+                    // Let's do a very small linear decay or exponential.
+                    // decay_factor = 1.0 - (drift_time * 0.000001); // 1e-6 per second
+
+                    let decay_rate = 0.0000005; // Very subtle decay
+                    let decay_factor = (1.0 - decay_rate * drift_time).max(0.90); // Cap at 10% loss per session for safety
+
+                    final_pos *= decay_factor;
+                } else {
+                    // Straight line fallback
+                    final_pos += velocity * drift_time;
+                }
             } else {
-                 // Hyperbolic/Parabolic - just drift linearly
-                 final_pos += velocity * drift_time;
+                // Hyperbolic/Parabolic - just drift linearly
+                final_pos += velocity * drift_time;
             }
         } else {
-             // Deep Space - Linear Drift
-             final_pos += velocity * drift_time;
+            // Deep Space - Linear Drift
+            final_pos += velocity * drift_time;
         }
 
         spawn_loc.cell = cell;
         spawn_loc.local_pos = final_pos;
         spawn_loc.velocity = Some(final_vel);
+        spawn_loc.throttle = state.throttle; // Set loaded throttle
         spawn_loc.has_spawned = true;
-        
-        info!("PERSISTENCE: Loaded state from {}s ago. Drifted {}s.", delta_time, drift_time);
+
+        info!(
+            "PERSISTENCE: Loaded state from {}s ago. Drifted {}s.",
+            delta_time, drift_time
+        );
     } else {
         info!("PERSISTENCE: No save found. Starting fresh.");
         spawn_loc.has_spawned = false;
@@ -140,32 +148,39 @@ fn auto_save_system(
     mut timer: Local<f32>,
     db: Res<Database>,
     q_player: Query<(&GridCell<i64>, &Transform, &Velocity), With<ZenCamera>>,
+    input: Res<VehicleInput>, // Added input resource
 ) {
     *timer += time.delta_secs();
-    if *timer < 5.0 { return; }
+    if *timer < 5.0 {
+        return;
+    }
     *timer = 0.0;
 
     if let Ok((cell, tf, vel)) = q_player.get_single() {
-         let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-         
-         let state = PlayerState {
-             cell_x: cell.x,
-             cell_y: cell.y,
-             cell_z: cell.z,
-             local_x: tf.translation.x,
-             local_y: tf.translation.y,
-             local_z: tf.translation.z,
-             vel_x: vel.0.x,
-             vel_y: vel.0.y,
-             vel_z: vel.0.z,
-             timestamp: current_time,
-         };
-         
-         if let Err(e) = db.save_player_state(&state) {
-             error!("AutoSave Failed: {}", e);
-         } else {
-             // info!("AutoSaved Player State"); // Noisy
-         }
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let state = PlayerState {
+            cell_x: cell.x,
+            cell_y: cell.y,
+            cell_z: cell.z,
+            local_x: tf.translation.x,
+            local_y: tf.translation.y,
+            local_z: tf.translation.z,
+            vel_x: vel.0.x,
+            vel_y: vel.0.y,
+            vel_z: vel.0.z,
+            timestamp: current_time,
+            throttle: input.throttle, // Save throttle
+        };
+
+        if let Err(e) = db.save_player_state(&state) {
+            error!("AutoSave Failed: {}", e);
+        } else {
+            // info!("AutoSaved Player State"); // Noisy
+        }
     }
 }
 
@@ -176,66 +191,66 @@ fn auto_save_system(
 fn has_star(cell: &GridCell<i64>) -> bool {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     // Assuming UniverseSeed is consistent (Default 0). If we have a seed resource, we should use it.
-    // For now, let's assume seed 0 or pass it in. 
+    // For now, let's assume seed 0 or pass it in.
     // Wait, spawner uses UniverseSeed resource. We should fetch it.
     use std::hash::{Hash, Hasher};
     cell.hash(&mut hasher);
     0.hash(&mut hasher); // Hardcoded seed 0 for now as we don't have access to UniverseSeed here easily without adding it to system params
     let cell_seed = hasher.finish();
-    
+
     // Logic from spawner.rs:
     use rand::{Rng, SeedableRng};
     let mut rng = rand::rngs::StdRng::seed_from_u64(cell_seed);
     let is_origin = cell.x == 0 && cell.y == 0 && cell.z == 0;
-    let density_chance = if is_origin { 1.0 } else { 0.02 }; 
+    let density_chance = if is_origin { 1.0 } else { 0.02 };
     rng.gen_bool(density_chance)
 }
 
 fn check_system_change(
     q_player: Query<&GridCell<i64>, (Changed<GridCell<i64>>, With<ZenCamera>)>,
-    db: Res<Database>, 
+    db: Res<Database>,
     mut current_data: ResMut<CurrentSystemData>,
 ) {
     if let Ok(cell) = q_player.get_single() {
         info!("Entered System: {:?}", cell);
         current_data.cell = *cell;
-        
+
         // SQLite Query
         match db.get_discovery(*cell) {
-             Ok(Some(discovery)) => {
-                 current_data.discovery = Some(discovery);
-             },
-             Ok(None) => {
-                 // No discovery found. Check if it SHOULD be a star system.
-                 if has_star(cell) {
-                     // Auto-Discover!
-                     let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
-                     let new_discovery = Discovery {
-                         cell_x: cell.x,
-                         cell_y: cell.y,
-                         cell_z: cell.z,
-                         name: default_name.clone(),
-                         finder: "System AI".to_string(), // Auto-discovered
-                         note: "Autologged".to_string(),
-                         date: "2026".to_string(),
-                         object_type: "Star System".to_string(),
-                     };
-                     
-                     if let Err(e) = db.save_discovery(&new_discovery) {
-                         error!("Failed to auto-save discovery: {}", e);
-                         current_data.discovery = None;
-                     } else {
-                         info!("Auto-Discovered System: {}", default_name);
-                         current_data.discovery = Some(new_discovery);
-                     }
-                 } else {
-                     current_data.discovery = None;
-                 }
-             },
-             Err(e) => {
-                 error!("Database Error: {}", e);
-                 current_data.discovery = None;
-             }
+            Ok(Some(discovery)) => {
+                current_data.discovery = Some(discovery);
+            }
+            Ok(None) => {
+                // No discovery found. Check if it SHOULD be a star system.
+                if has_star(cell) {
+                    // Auto-Discover!
+                    let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
+                    let new_discovery = Discovery {
+                        cell_x: cell.x,
+                        cell_y: cell.y,
+                        cell_z: cell.z,
+                        name: default_name.clone(),
+                        finder: "System AI".to_string(), // Auto-discovered
+                        note: "Autologged".to_string(),
+                        date: "2026".to_string(),
+                        object_type: "Star System".to_string(),
+                    };
+
+                    if let Err(e) = db.save_discovery(&new_discovery) {
+                        error!("Failed to auto-save discovery: {}", e);
+                        current_data.discovery = None;
+                    } else {
+                        info!("Auto-Discovered System: {}", default_name);
+                        current_data.discovery = Some(new_discovery);
+                    }
+                } else {
+                    current_data.discovery = None;
+                }
+            }
+            Err(e) => {
+                error!("Database Error: {}", e);
+                current_data.discovery = None;
+            }
         }
         current_data.is_dirty = true;
     }

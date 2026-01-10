@@ -41,6 +41,7 @@ pub struct PlayerState {
     pub vel_y: f32,
     pub vel_z: f32,
     pub timestamp: i64, 
+    pub throttle: f32, // Added throttle
 }
 
 // Thread-safe wrapper for the connection
@@ -89,9 +90,14 @@ impl Database {
                 vel_x REAL NOT NULL,
                 vel_y REAL NOT NULL,
                 vel_z REAL NOT NULL,
-                timestamp INTEGER NOT NULL
+                timestamp INTEGER NOT NULL,
+                throttle REAL DEFAULT 0.0
             );"
         )?;
+
+        // Migration: Add throttle column if it doesn't exist (for existing DBs)
+        // We just try to add it and ignore error if it exists
+        let _ = conn.execute("ALTER TABLE player_state ADD COLUMN throttle REAL DEFAULT 0.0", []);
 
         Ok(Database {
             conn: Arc::new(Mutex::new(conn)),
@@ -150,19 +156,19 @@ impl Database {
     pub fn save_player_state(&self, state: &PlayerState) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO player_state (id, cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR REPLACE INTO player_state (id, cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp, throttle)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
              params![state.cell_x, state.cell_y, state.cell_z, 
                      state.local_x, state.local_y, state.local_z, 
                      state.vel_x, state.vel_y, state.vel_z, 
-                     state.timestamp],
+                     state.timestamp, state.throttle],
         )?;
         Ok(())
     }
 
     pub fn get_player_state(&self) -> Result<Option<PlayerState>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp FROM player_state WHERE id = 1")?;
+        let mut stmt = conn.prepare("SELECT cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp, throttle FROM player_state WHERE id = 1")?;
         
         let mut rows = stmt.query([])?;
         if let Some(row) = rows.next()? {
@@ -177,6 +183,7 @@ impl Database {
                 vel_y: row.get(7)?,
                 vel_z: row.get(8)?,
                 timestamp: row.get(9)?,
+                throttle: row.get(10).unwrap_or(0.0), // Handle legacy records if any
             }))
         } else {
             Ok(None)
