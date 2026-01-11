@@ -5,7 +5,7 @@ pub struct MobileInputPlugin;
 impl Plugin for MobileInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VehicleInput>()
-           .add_systems(Update, update_vehicle_input);
+            .add_systems(Update, update_vehicle_input);
     }
 }
 
@@ -15,6 +15,7 @@ pub struct VehicleInput {
     pub pitch: f32,    // -1.0 to 1.0 (Down/Up)
     pub yaw: f32,      // -1.0 to 1.0 (Left/Right)
     pub roll: f32,     // -1.0 to 1.0 (Roll Left/Right)
+    pub warp_mode: bool,
 }
 
 fn update_vehicle_input(
@@ -30,53 +31,59 @@ fn update_vehicle_input(
     // If any touch is active, we use touch logic.
     // Left Half: Throttle (Y) + Roll (X) [Sticky]
     // Right Half: Pitch (Y) + Yaw (X) [Steering]
-    
+
     // We only process touches if they exist, otherwise fallback to Keyboard
     let mut touch_active = false;
-    
+
     // Safely get window for touch calculation
     if let Ok(window) = windows.get_single() {
         let width = window.width();
         let center_x = width / 2.0;
-    
+
         for touch in touches.iter() {
             touch_active = true;
             let pos = touch.position();
-            
+
             // SENSITIVITY
-            let touch_sensitivity = 0.005; 
-    
+            let touch_sensitivity = 0.005;
+
             if pos.x < center_x {
                 // LEFT ZONE: Throttle & Roll
                 if let Some(delta) = touches.get_pressed(touch.id()).map(|t| t.delta()) {
-                    input.throttle = (input.throttle - delta.y * touch_sensitivity).clamp(-1.0, 1.0);
+                    input.throttle =
+                        (input.throttle - delta.y * touch_sensitivity).clamp(-1.0, 1.0);
                     input.roll = (input.roll + delta.x * touch_sensitivity).clamp(-1.0, 1.0);
                 }
             } else {
-                 // RIGHT ZONE: Pitch & Yaw (Stick)
-                 if let Some(delta) = touches.get_pressed(touch.id()).map(|t| t.delta()) {
-                     input.pitch = (input.pitch + delta.y * touch_sensitivity * 10.0).clamp(-1.0, 1.0);
-                     input.yaw = (input.yaw - delta.x * touch_sensitivity * 10.0).clamp(-1.0, 1.0);
-                 }
+                // RIGHT ZONE: Pitch & Yaw (Stick)
+                if let Some(delta) = touches.get_pressed(touch.id()).map(|t| t.delta()) {
+                    input.pitch =
+                        (input.pitch + delta.y * touch_sensitivity * 10.0).clamp(-1.0, 1.0);
+                    input.yaw = (input.yaw - delta.x * touch_sensitivity * 10.0).clamp(-1.0, 1.0);
+                }
             }
         }
-        
+
         // Spring Back (Touch)
         let mut left_active = false;
         let mut right_active = false;
         for touch in touches.iter() {
-            if touch.position().x < center_x { left_active = true; } else { right_active = true; }
+            if touch.position().x < center_x {
+                left_active = true;
+            } else {
+                right_active = true;
+            }
         }
-        
+
         if touch_active {
-             if !left_active {
-                 input.roll = lerp(input.roll, 0.0, dt * 5.0);
-             }
-             if !right_active {
-                 input.pitch = lerp(input.pitch, 0.0, dt * 5.0);
-                 input.yaw = lerp(input.yaw, 0.0, dt * 5.0);
-             }
-             return; // Skip Keyboard if using Touch (prevents conflict)
+            if !left_active {
+                input.roll = lerp(input.roll, 0.0, dt * 5.0);
+            }
+            if !right_active {
+                input.pitch = lerp(input.pitch, 0.0, dt * 5.0);
+                input.yaw = lerp(input.yaw, 0.0, dt * 5.0);
+            }
+            return; // Skip Keyboard if using Touch (prevents conflict)
         }
     }
 
@@ -86,7 +93,7 @@ fn update_vehicle_input(
     // Down Arrow: Decrease
     // Space: Brake (Cut Throttle)
     let throttle_sensitivity = 0.5; // Takes 2 seconds to go 0->1
-    
+
     if keys.just_pressed(KeyCode::Space) {
         input.throttle = 0.0;
     } else {
@@ -98,9 +105,18 @@ fn update_vehicle_input(
         }
     }
 
+    // Toggle Warp Mode (0 Key)
+    if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::KeyO) {
+        // Wait, user said "0". KeyO is for Origin (Teleport).
+        // Let's stick to Digit0 as requested.
+        if keys.just_pressed(KeyCode::Digit0) {
+            input.warp_mode = !input.warp_mode;
+        }
+    }
+
     // 2. Pitch (W/S) - Spring Back
     let target_pitch = if keys.pressed(KeyCode::KeyW) {
-        1.0 
+        1.0
     } else if keys.pressed(KeyCode::KeyS) {
         -1.0
     } else {

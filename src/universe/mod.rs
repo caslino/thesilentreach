@@ -27,6 +27,12 @@ pub enum RenderMode {
     Baked,
 }
 
+#[derive(Resource, Debug, Clone)]
+pub struct UniverseConfig {
+    pub scenario_name: String,
+    pub active_seed: u64,
+}
+
 #[derive(Resource, Default, Debug)]
 pub struct RenderConfig {
     pub mode: RenderMode,
@@ -55,10 +61,26 @@ pub struct Orbit {
 pub struct StarDetails {
     pub color: Color,
     pub size: f32,
+    pub planets: Option<Vec<DetailedPlanet>>,
 }
 
-#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
+pub struct DetailedPlanet {
+    pub name: String,
+    pub planet_type: PlanetType,
+    pub distance: f32,
+    pub size: f32,
+    pub color: Color,
+    pub second_color: Option<Color>,
+    pub atmosphere_color: Option<Color>,
+    pub atmosphere_density: Option<f32>,
+    pub orbit_speed: f32,
+}
+
+#[derive(Component, Clone, Copy, Debug, Serialize, Deserialize, Reflect, Default)]
+#[reflect(Component, Default)]
 pub enum PlanetType {
+    #[default]
     Terran,
     Ice,
     Magma,
@@ -137,6 +159,16 @@ pub struct SystemSavedEvent {
 mod seed_test;
 
 fn get_universe_seed() -> u64 {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = args.iter().position(|x| x == "--scenario") {
+        if let Some(scenario) = args.get(pos + 1) {
+            match scenario.as_str() {
+                "milky_way" => return 987654321,
+                _ => {}
+            }
+        }
+    }
+
     if let Ok(s) = std::env::var("UNIVERSE_SEED") {
         s.parse::<u64>().unwrap_or_else(|_| {
             warn!("Invalid UNIVERSE_SEED environment variable, using random seed.");
@@ -150,9 +182,22 @@ fn get_universe_seed() -> u64 {
 impl Plugin for UniversePlugin {
     fn build(&self, app: &mut App) {
         let seed = get_universe_seed();
-        info!("Universe Seed: {}", seed);
+        let args: Vec<String> = std::env::args().collect();
+        let scenario_name = if let Some(pos) = args.iter().position(|x| x == "--scenario") {
+            args.get(pos + 1)
+                .cloned()
+                .unwrap_or_else(|| "default".to_string())
+        } else {
+            "default".to_string()
+        };
+
+        info!("Universe Scenario: {}, Seed: {}", scenario_name, seed);
 
         app.insert_resource(UniverseSeed(seed))
+            .insert_resource(UniverseConfig {
+                scenario_name,
+                active_seed: seed,
+            })
             .add_plugins(BigSpacePlugin::<i64>::default())
             .add_systems(PreStartup, setup_universe)
             .add_plugins(spawner::StarSystemSpawnerPlugin)

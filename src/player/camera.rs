@@ -6,8 +6,8 @@ use bevy::prelude::*;
 use big_space::{FloatingOrigin, GridCell, ReferenceFrame};
 
 const SHIP_MASS: f32 = 1000.0; // kg
-const THRUST_FORCE: f32 = 100_000.0; // Newtons (Reduced for Zen Pacing)
-const DRAG_COEFFICIENT: f32 = 2.0; // "Space Friction" / Inertial Dampeners
+const THRUST_FORCE: f32 = 200_000.0; // (Increased from 100k)
+const _DRAG_COEFFICIENT: f32 = 2.0; // "Space Friction" / Inertial Dampeners
 const TURN_POWER: f32 = 0.8; // Lower torque for heavier start
 const ROTATIONAL_DRAG: f32 = 0.5; // Lower drag to preserve momentum
 
@@ -217,11 +217,15 @@ fn ship_controls(
             let forward = ship_transform.forward();
 
             // Reverse Thrusters are weaker (1/3 power)
-            let current_thrust_power = if input.throttle > 0.0 {
+            let mut current_thrust_power = if input.throttle > 0.0 {
                 THRUST_FORCE
             } else {
                 THRUST_FORCE / 3.0
             };
+
+            if input.warp_mode {
+                current_thrust_power *= 10.0;
+            }
 
             let accel = (input.throttle * current_thrust_power) / SHIP_MASS;
             ship_velocity.0 += forward * accel * dt;
@@ -338,3 +342,5 @@ fn physics_step(
         ang_vel.0 *= ang_damping;
     }
 }
+
+// Tethering system removed per user request

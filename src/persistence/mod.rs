@@ -21,18 +21,36 @@ pub struct SpawnLocation {
     pub has_spawned: bool,
 }
 
+#[derive(Resource, Default)]
+pub struct PersistenceConfig {
+    pub scenario: String,
+    pub force_origin: bool,
+}
+
 use crate::player::camera::{Velocity, ZenCamera};
 use crate::player::input::VehicleInput;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub struct PersistencePlugin;
+pub struct PersistencePlugin {
+    pub scenario: String,
+    pub force_origin: bool,
+}
 
 impl Plugin for PersistencePlugin {
     fn build(&self, app: &mut App) {
         // Initialize DB
         let db = Database::open().expect("Failed to open SQLite database");
 
+        // Seed Predefined System if needed
+        if let Err(e) = db.seed_predefined_system(&self.scenario) {
+            error!("Failed to seed database: {}", e);
+        }
+
         app.insert_resource(db)
+            .insert_resource(PersistenceConfig {
+                scenario: self.scenario.clone(),
+                force_origin: self.force_origin,
+            })
             .init_resource::<SpawnLocation>()
             .init_resource::<CurrentSystemData>()
             .add_systems(PreStartup, load_player_state) // Load before camera setup
@@ -40,7 +58,21 @@ impl Plugin for PersistencePlugin {
     }
 }
 
-fn load_player_state(db: Res<Database>, mut spawn_loc: ResMut<SpawnLocation>) {
+fn load_player_state(
+    db: Res<Database>,
+    mut spawn_loc: ResMut<SpawnLocation>,
+    config: Res<PersistenceConfig>,
+) {
+    if config.force_origin {
+        spawn_loc.cell = GridCell::new(0, 0, 0);
+        spawn_loc.local_pos = Vec3::ZERO;
+        spawn_loc.velocity = Some(Vec3::ZERO);
+        spawn_loc.throttle = 0.0;
+        spawn_loc.has_spawned = true;
+        info!("PERSISTENCE: Force Origin requested. Spawning at (0,0,0).");
+        return;
+    }
+
     // 1. Check DB
     if let Ok(Some(state)) = db.get_player_state() {
         // 2. Calculate Catch-up

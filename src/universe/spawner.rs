@@ -1,42 +1,48 @@
-use bevy::prelude::*;
-use big_space::{GridCell, ReferenceFrame, FloatingOrigin};
-use crate::universe::materials::{StarMaterial, PlanetMaterial};
-use crate::universe::{UniverseSeed, Mass, Radius, Star, Planet, StarDetails, PlanetDetails, PlanetType, SectorIndex, SECTOR_SIZE};
-use crate::universe::gpu_star_renderer::StarSector; 
 use crate::persistence::Database;
 use crate::universe::RenderConfig;
 use crate::universe::RenderMode;
+use crate::universe::gpu_star_renderer::StarSector;
+use crate::universe::materials::{PlanetMaterial, StarMaterial};
+use crate::universe::{
+    Mass, Planet, PlanetDetails, PlanetType, Radius, SECTOR_SIZE, SectorIndex, Star, StarDetails,
+    UniverseSeed,
+};
+use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use big_space::{FloatingOrigin, GridCell, ReferenceFrame};
 
-use crate::universe::physics::GRID_SIZE;
-use rand::{Rng, SeedableRng};
+// use crate::universe::physics::GRID_SIZE; // Unused
+use bevy::tasks::{AsyncComputeTaskPool, Task};
+use futures_lite::future;
 use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use bevy::tasks::{AsyncComputeTaskPool, Task};
-use futures_lite::future;
 
 pub struct StarSystemSpawnerPlugin;
 
 impl Plugin for StarSystemSpawnerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpawnTracker>()
-           .init_resource::<GalaxyMap>()
-           .init_resource::<CommonMeshes>()
-           .init_resource::<SectorTaskTracker>()
-           .init_resource::<NoiseTextures>()
-           .init_resource::<PlanetTextureAtlas>()
-           .add_systems(Update, (
-               manage_galaxy_sectors, 
-               handle_generation_tasks, 
-               // Ensure texture tasks are handled before potential despawns to avoid command races
-               handle_texture_tasks.before(despawn_distant_systems), 
-               sync_universe_view, 
-               update_lod_scaling, 
-               despawn_distant_systems, 
-               rotate_planets
-            ));
+            .init_resource::<GalaxyMap>()
+            .init_resource::<CommonMeshes>()
+            .init_resource::<SectorTaskTracker>()
+            .init_resource::<NoiseTextures>()
+            .init_resource::<PlanetTextureAtlas>()
+            .add_systems(
+                Update,
+                (
+                    manage_galaxy_sectors,
+                    handle_generation_tasks,
+                    // Ensure texture tasks are handled before potential despawns to avoid command races
+                    handle_texture_tasks.before(despawn_distant_systems),
+                    sync_universe_view,
+                    update_lod_scaling,
+                    despawn_distant_systems,
+                    rotate_planets,
+                ),
+            );
     }
 }
 
@@ -106,7 +112,8 @@ impl FromWorld for PlanetTextureAtlas {
             TextureDimension::D2,
             pixels,
             TextureFormat::Rgba8UnormSrgb,
-            bevy::render::render_asset::RenderAssetUsages::MAIN_WORLD | bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD,
+            bevy::render::render_asset::RenderAssetUsages::MAIN_WORLD
+                | bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD,
         );
         let atlas_handle = images.add(image);
 
@@ -128,16 +135,16 @@ impl FromWorld for PlanetTextureAtlas {
 
 #[derive(Resource, Default)]
 pub struct SpawnTracker {
-    pub spawned_cells: HashMap<GridCell<i64>, Entity>, // Only for Full stars
-    pub spawned_sectors: HashMap<SectorIndex, Entity>, // Distant GPU sectors
+    pub spawned_cells: HashMap<GridCell<i64>, Vec<Entity>>, // Multiple entities per cell for predefined systems
+    pub spawned_sectors: HashMap<SectorIndex, Entity>,      // Distant GPU sectors
 }
 
 // StarData moved to mod.rs
 
 // 10x10x10 GridCells per Sector
-// SECTOR_SIZE moved to mod.rs 
+// SECTOR_SIZE moved to mod.rs
 
-// PlanetType moved to mod.rs 
+// PlanetType moved to mod.rs
 
 // SectorIndex moved to mod.rs
 
@@ -159,8 +166,10 @@ fn manage_galaxy_sectors(
     db: Res<Database>,
     q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
 ) {
-    let Ok(camera_cell) = q_camera.get_single() else { return; };
-    
+    let Ok(camera_cell) = q_camera.get_single() else {
+        return;
+    };
+
     // Check current sector + Neighbors
     let center_sector = SectorIndex::from_cell(*camera_cell);
     let view_dist = 1; // 3x3x3 sectors
@@ -179,10 +188,12 @@ fn manage_galaxy_sectors(
                 };
 
                 // If not in map AND not currently generating
-                if !galaxy_map.sectors.contains_key(&sector_idx) && !task_tracker.tasks.contains_key(&sector_idx) {
+                if !galaxy_map.sectors.contains_key(&sector_idx)
+                    && !task_tracker.tasks.contains_key(&sector_idx)
+                {
                     let thread_pool = AsyncComputeTaskPool::get();
-                    let db_for_task = db_clone.clone(); 
-                    
+                    let db_for_task = db_clone.clone();
+
                     let task = thread_pool.spawn(async move {
                         let data = generate_sector_data(sector_idx, seed_val, &db_for_task);
                         (sector_idx, data)
@@ -199,7 +210,7 @@ fn handle_generation_tasks(
     mut task_tracker: ResMut<SectorTaskTracker>,
 ) {
     let mut completed = Vec::new();
-    
+
     for (_sector, task) in task_tracker.tasks.iter_mut() {
         if let Some(result) = future::block_on(future::poll_once(task)) {
             completed.push(result);
@@ -230,7 +241,7 @@ fn handle_texture_tasks(
                 warn!("Planet Texture Atlas Full! Fallback not implemented yet.");
                 continue;
             };
-            
+
             atlas.slot_map.insert(entity, slot_index);
 
             let grid_size = atlas.grid_size;
@@ -238,7 +249,14 @@ fn handle_texture_tasks(
             let atlas_size = atlas.atlas_size;
 
             if let Some(atlas_image) = images.get_mut(&atlas.atlas_handle) {
-                bake_planet_texture(atlas_image, &pixels, slot_index, grid_size, slot_size, atlas_size);
+                bake_planet_texture(
+                    atlas_image,
+                    &pixels,
+                    slot_index,
+                    grid_size,
+                    slot_size,
+                    atlas_size,
+                );
             }
 
             // Calculate UV Offset/Scale
@@ -276,28 +294,35 @@ fn handle_texture_tasks(
 }
 
 fn generate_sector_data(
-    sector: SectorIndex, 
+    sector: SectorIndex,
     seed: UniverseSeed,
-    db: &Database
+    db: &Database,
 ) -> Vec<(GridCell<i64>, StarDetails)> {
     // 1. Check Database
     match db.get_sector_data(sector) {
         Ok(Some(data)) => {
-            info!("PERSISTENCE: Loaded Sector {:?} with {} stars.", sector, data.len());
+            info!(
+                "PERSISTENCE: Loaded Sector {:?} with {} stars.",
+                sector,
+                data.len()
+            );
             return data;
-        },
+        }
         Ok(None) => {
-             info!("PERSISTENCE: Sector {:?} not found. Generating...", sector);
-        },
+            info!("PERSISTENCE: Sector {:?} not found. Generating...", sector);
+        }
         Err(e) => {
-            error!("PERSISTENCE: Critical Error reading Sector {:?}: {}. Aborting generation to protect data.", sector, e);
-            return Vec::new(); 
+            error!(
+                "PERSISTENCE: Critical Error reading Sector {:?}: {}. Aborting generation to protect data.",
+                sector, e
+            );
+            return Vec::new();
         }
     }
 
     // 2. Generate
     let mut stars = Vec::new();
-    
+
     let start_x = sector.x * SECTOR_SIZE;
     let start_y = sector.y * SECTOR_SIZE;
     let start_z = sector.z * SECTOR_SIZE;
@@ -309,16 +334,23 @@ fn generate_sector_data(
     for x in start_x..end_x {
         for y in start_y..end_y {
             for z in start_z..end_z {
-                 let cell = GridCell::<i64>::new(x, y, z);
-                
-                 if let Some((color, size)) = crate::universe::star_common::get_star_data(x, y, z, seed.0) {
-                     stars.push((cell, StarDetails { color, size }));
-                 }
+                let cell = GridCell::<i64>::new(x, y, z);
+
+                if let Some((color, size)) =
+                    crate::universe::star_common::get_star_data(x, y, z, seed.0)
+                {
+                    stars.push((
+                        cell,
+                        StarDetails {
+                            color,
+                            size,
+                            planets: None,
+                        },
+                    ));
+                }
             }
         }
     }
-
-
 
     // 3. Save to Database
     if let Err(e) = db.save_sector_data(sector, &stars) {
@@ -328,37 +360,41 @@ fn generate_sector_data(
     stars
 }
 
-
 fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, 
+    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
     common_meshes: Res<CommonMeshes>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>, 
-    mut star_materials: ResMut<Assets<StarMaterial>>, 
-    mut planet_materials: ResMut<Assets<PlanetMaterial>>, 
+    mut std_materials: ResMut<Assets<StandardMaterial>>,
+    mut star_materials: ResMut<Assets<StarMaterial>>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
     db: Res<Database>,
     render_config: Res<RenderConfig>,
     mut images: ResMut<Assets<Image>>,
     seed: Res<UniverseSeed>,
     noise_textures: Res<NoiseTextures>,
     atlas: Res<PlanetTextureAtlas>,
+    config: Res<crate::universe::UniverseConfig>,
 ) {
-    let Ok(camera_cell) = q_camera.get_single() else { return; };
-    let Ok(big_space_entity) = q_big_space.get_single() else { return; };
+    let Ok(camera_cell) = q_camera.get_single() else {
+        return;
+    };
+    let Ok(big_space_entity) = q_big_space.get_single() else {
+        return;
+    };
 
     let detail_radius = 1; // 1 Sector radius for Full stars
     let view_radius = 5; // 5 Sectors for GPU stars
 
     let center_sector = SectorIndex::from_cell(*camera_cell);
-    
+
     // 1. Iterate View Area
     for x in -view_radius..=view_radius {
         for y in -view_radius..=view_radius {
             for z in -view_radius..=view_radius {
-                 let sector_idx = SectorIndex {
+                let sector_idx = SectorIndex {
                     x: center_sector.x + x,
                     y: center_sector.y + y,
                     z: center_sector.z + z,
@@ -371,7 +407,7 @@ fn sync_universe_view(
 
                 // LOD Selection
                 let want_full = dist_sectors <= detail_radius;
-                
+
                 // DISTANT (GPU) Logic
                 if !want_full {
                     // We need a GPU Sector
@@ -379,35 +415,37 @@ fn sync_universe_view(
                         // Spawn GPU Sector
                         // Calculate Sector Origin Cell
                         let origin_cell = GridCell::<i64>::new(
-                             sector_idx.x * SECTOR_SIZE,
-                             sector_idx.y * SECTOR_SIZE,
-                             sector_idx.z * SECTOR_SIZE
+                            sector_idx.x * SECTOR_SIZE,
+                            sector_idx.y * SECTOR_SIZE,
+                            sector_idx.z * SECTOR_SIZE,
                         );
-                        
-                        let entity = commands.spawn((
-                            SpatialBundle::default(), // Provides Transform/GlobalTransform/Visibility
-                            origin_cell, // BigSpace moves it
-                            StarSector {
-                                index: sector_idx,
-                                seed: seed.0 as u32,
-                            },
-                        )).id();
+
+                        let entity = commands
+                            .spawn((
+                                Transform::default(),
+                                Visibility::default(), // Provides Transform/GlobalTransform/Visibility
+                                origin_cell,           // BigSpace moves it
+                                StarSector {
+                                    index: sector_idx,
+                                    seed: seed.0 as u32,
+                                },
+                            ))
+                            .id();
                         commands.entity(big_space_entity).add_child(entity);
                         tracker.spawned_sectors.insert(sector_idx, entity);
                     }
-                    
+
                     // Ensure Full stars are despawned for this sector
                     // Iterate cells in this sector?
                     // Optimized: Only check `spawned_cells` if we transitioned.
                     // But brute force check for keys in this sector:
-                    // Only if we just transitioned? 
+                    // Only if we just transitioned?
                     // Let's rely on standard despawn logic separately or just check here.
                     // Doing 10x10x10 check is 1000 iter. Too slow?
                     // Better: `despawn_distant_systems` handles removal of full stars out of range.
                     // `despawn_distant_systems` currently checks distance > removal_radius.
                     // If removal_radius matches `detail_radius`, it works.
-                } 
-                
+                }
                 // FULL Logic
                 else {
                     // We want FULL stars.
@@ -420,10 +458,10 @@ fn sync_universe_view(
                     if let Some(stars) = galaxy_map.sectors.get(&sector_idx) {
                         for (cell, star_data) in stars {
                             if !tracker.spawned_cells.contains_key(cell) {
-                                let entity = spawn_star_with_data(
-                                    &mut commands, 
-                                    big_space_entity, 
-                                    *cell, 
+                                let entities = spawn_star_with_data(
+                                    &mut commands,
+                                    big_space_entity,
+                                    *cell,
                                     star_data,
                                     &common_meshes,
                                     &mut star_materials,
@@ -434,17 +472,18 @@ fn sync_universe_view(
                                     &mut images,
                                     &noise_textures,
                                     &atlas,
+                                    &seed,
+                                    &config,
                                 );
-                                tracker.spawned_cells.insert(*cell, entity);
+                                tracker.spawned_cells.insert(*cell, entities);
                             }
                         }
-                    } 
+                    }
                 }
             }
         }
     }
 }
-
 
 // Removed update_lod_scaling (handled by shader/GPU)
 fn update_lod_scaling() {}
@@ -456,21 +495,23 @@ fn despawn_distant_systems(
     mut atlas: ResMut<PlanetTextureAtlas>,
     q_children: Query<&Children>,
 ) {
-    let Ok(camera_cell) = q_camera.get_single() else { return; };
-    let removal_radius = 2; // Keep closer than previously (previously 6). Now > 1 is Distant/GPU? 
+    let Ok(camera_cell) = q_camera.get_single() else {
+        return;
+    };
+    let _removal_radius = 2; // Keep closer than previously (previously 6). Now > 1 is Distant/GPU? 
     // If detail_radius is 1, then >1 is handled by GPU.
     // So distinct entities should be removed if > 1.
     // Let's set to 2 to have some margin.
     // BUT we must despawn them if we are swapping to GPU.
     // Fix loop: full_radius must encompass the area spawned by sync_universe_view.
-    // detail_radius is 1 sector. 1 sector = 10 units. 
+    // detail_radius is 1 sector. 1 sector = 10 units.
     // Max distance to a neighbor sector cell: ~20 units.
     // Safe margin: 25.
     let full_radius = 25;
     let gpu_radius = 60; // 6 sectors * 10
 
     // Handle Full Cells
-    tracker.spawned_cells.retain(|cell, entity| {
+    tracker.spawned_cells.retain(|cell, entities| {
         let dx = (cell.x - camera_cell.x).abs();
         let dy = (cell.y - camera_cell.y).abs();
         let dz = (cell.z - camera_cell.z).abs();
@@ -478,15 +519,16 @@ fn despawn_distant_systems(
 
         if dist > full_radius {
             // Check for children (planets) that might have atlas slots
-            if let Ok(children) = q_children.get(*entity) {
-                for child in children.iter() {
-                    if let Some(slot) = atlas.slot_map.remove(child) {
-                        atlas.available_slots.push(slot);
+            for entity in entities {
+                if let Ok(children) = q_children.get(*entity) {
+                    for child in children.iter() {
+                        if let Some(slot) = atlas.slot_map.remove(child) {
+                            atlas.available_slots.push(slot);
+                        }
                     }
                 }
+                commands.entity(*entity).despawn_recursive();
             }
-
-            commands.entity(*entity).despawn_recursive();
             false
         } else {
             true
@@ -510,8 +552,6 @@ fn despawn_distant_systems(
     });
 }
 
-
-
 #[derive(Component)]
 pub struct SystemLabel;
 
@@ -526,10 +566,14 @@ fn spawn_star_with_data(
     std_materials: &mut ResMut<Assets<StandardMaterial>>,
     db: &Database,
     render_config: &Res<RenderConfig>,
-    images: &mut ResMut<Assets<Image>>,
+    _images: &mut ResMut<Assets<Image>>,
     noise_textures: &Res<NoiseTextures>,
     atlas: &Res<PlanetTextureAtlas>,
-) -> Entity {
+    _seed: &UniverseSeed,
+    config: &crate::universe::UniverseConfig,
+) -> Vec<Entity> {
+    let mut spawned_entities = Vec::new();
+
     // Determine Names
     let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);
     let mut star_name = default_name.clone();
@@ -544,14 +588,16 @@ fn spawn_star_with_data(
         }
     }
 
-    let system_root = commands.spawn((
-        Transform::default(),
-        Visibility::default(),
-        cell, 
-    )).id();
+    // Special Case: Our Solar System
+    let is_sun = cell.x == 0 && cell.y == 0 && cell.z == 0 && config.scenario_name == "our_system";
+    if is_sun {
+        star_name = "The Sun".to_string();
+    }
 
-    // Debug: Log spawn
-    info!("SPAWNING STAR @ {:?}: Size: {}, Color: {:?}", cell, data.size, data.color);
+    let system_root = commands
+        .spawn((Transform::default(), Visibility::default(), cell))
+        .id();
+    spawned_entities.push(system_root);
 
     commands.entity(parent_id).add_child(system_root);
 
@@ -563,49 +609,144 @@ fn spawn_star_with_data(
                 color: LinearRgba::from(data.color),
                 seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456, // Simple Seed
             })),
-            Mass(1_000_000.0), 
-            Radius(data.size), 
+            Mass(1_000_000.0),
+            Radius(data.size),
             Star,
-            StarDetails { color: data.color, size: data.size },
+            StarDetails {
+                color: data.color,
+                size: data.size,
+                planets: None,
+            },
             Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
         ))
-        .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {
-            events.send(crate::universe::StarClicked { entity: _trigger.entity(), cell });
-        })
+        .observe(
+            move |_trigger: Trigger<Pointer<Click>>,
+                  mut events: EventWriter<crate::universe::StarClicked>| {
+                events.send(crate::universe::StarClicked {
+                    entity: _trigger.entity(),
+                    cell,
+                });
+            },
+        )
         .with_children(|star| {
-             // Light
-             star.spawn(PointLight {
+            // Light
+            star.spawn(PointLight {
                 color: data.color,
                 intensity: 10_000_000_000.0,
                 range: 2_000_000.0,
                 ..default()
             });
 
-             // System Label (Billboard)
-             star.spawn((
+            // System Label (Billboard)
+            star.spawn((
                 Text2d::new(star_name),
-                TextFont { font_size: 100.0, ..default() }, // Large in-world font
+                TextFont {
+                    font_size: 100.0,
+                    ..default()
+                }, // Large in-world font
                 TextColor(Color::WHITE),
                 TextLayout::new_with_justify(JustifyText::Center),
                 Transform::from_xyz(0.0, data.size * 2.5, 0.0) // Increased offset: 2.5x radius
-                    .with_scale(Vec3::splat(1.0)), // Ensure scale 
+                    .with_scale(Vec3::splat(1.0)), // Ensure scale
                 SystemLabel,
-             ));
+            ));
         });
+    });
 
-        // Planets (Randomized per system instance, not stored in GalaxyMap for now as they are local details)
+    // Planets (Separate from system_root hierarchy for GridCell independence)
+
+    // Planets
+    if let Some(planets) = &data.planets {
+        for planet_data in planets {
+            let p_type = planet_data.planet_type;
+            let (col1, col2) = p_type.get_palette();
+            let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
+
+            let dist = planet_data.distance;
+            let angle = (dist as f32 * 0.123f32).sin() * std::f32::consts::TAU;
+            let x = dist * angle.cos();
+            let z = dist * angle.sin();
+
+            let mut planet_entity = commands.spawn((
+                Mesh3d(common_meshes.unit_sphere_low.clone()),
+                Mass(10_000.0),
+                Radius(planet_data.size),
+                Planet,
+                crate::universe::Orbit {
+                    radius: dist,
+                    speed: planet_data.orbit_speed,
+                    angle,
+                },
+                PlanetDetails(p_type),
+                Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_data.size)),
+            ));
+            spawned_entities.push(planet_entity.id());
+
+            if render_config.mode == RenderMode::Baked {
+                let p_type_clone = p_type.clone();
+                let thread_pool = AsyncComputeTaskPool::get();
+                let task =
+                    thread_pool.spawn(async move { generate_planet_pixels(&p_type_clone, dist) });
+                planet_entity.insert((
+                    MeshMaterial3d(std_materials.add(StandardMaterial {
+                        base_color: planet_data.color,
+                        ..default()
+                    })),
+                    TextureBakeTask(task),
+                ));
+            } else {
+                planet_entity.insert(MeshMaterial3d(
+                    planet_materials.add(PlanetMaterial {
+                        base_color: LinearRgba::from(planet_data.color),
+                        second_color: LinearRgba::from(
+                            planet_data.second_color.unwrap_or(Color::from(col2)),
+                        ),
+                        seed: dist,
+                        atmosphere_color: LinearRgba::from(
+                            planet_data
+                                .atmosphere_color
+                                .unwrap_or(Color::from(atmos_col)),
+                        ),
+                        atmosphere_density: planet_data.atmosphere_density.unwrap_or(atmos_density),
+                        crater_map: noise_textures.crater_map.clone(),
+                        ridge_map: noise_textures.ridge_map.clone(),
+                        sediment_map: noise_textures.sediment_map.clone(),
+                        atlas_offset: Vec2::ZERO,
+                        atlas_scale: 1.0,
+                        use_atlas: 0,
+                        atlas_texture: atlas.atlas_handle.clone(),
+                    }),
+                ));
+            }
+
+            planet_entity.with_children(|planet| {
+                planet.spawn((
+                    Text2d::new(planet_data.name.clone()),
+                    TextFont {
+                        font_size: 80.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                    TextLayout::new_with_justify(JustifyText::Center),
+                    Transform::from_xyz(0.0, planet_data.size * 3.0, 0.0)
+                        .with_scale(Vec3::splat(1.0)),
+                    SystemLabel,
+                ));
+            });
+        }
+    } else if !is_sun {
+        // Randomized Planets (Only if not the forced Sun scenario without data)
         let mut hasher = DefaultHasher::new();
         cell.hash(&mut hasher);
         let cell_seed = hasher.finish();
         let mut rng = StdRng::seed_from_u64(cell_seed);
-        
+
         let num_planets = rng.gen_range(1..=4);
-        info!("SYSTEM {:?}: Spawning {} planets.", cell, num_planets); 
         for _i in 0..num_planets {
             let dist = rng.gen_range(5000.0..50000.0) + data.size;
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
             let planet_size = rng.gen_range(5.0..15.0);
-            
+
             let planet_seed = dist * 0.123 + angle;
             let p_type = PlanetType::from_seed(planet_seed);
             let (col1, col2) = p_type.get_palette();
@@ -613,9 +754,9 @@ fn spawn_star_with_data(
             let x = dist * angle.cos();
             let z = dist * angle.sin();
 
-            let mut planet_entity = root.spawn((
+            let mut planet_entity = commands.spawn((
                 Mesh3d(common_meshes.unit_sphere_low.clone()),
-                Mass(10_000.0), 
+                Mass(10_000.0),
                 Radius(planet_size),
                 Planet,
                 crate::universe::Orbit {
@@ -626,82 +767,68 @@ fn spawn_star_with_data(
                 PlanetDetails(p_type),
                 Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
             ));
+            spawned_entities.push(planet_entity.id());
 
             if render_config.mode == RenderMode::Baked {
-                 // Async Bake
-                 let p_type_clone = p_type.clone();
-                 let thread_pool = AsyncComputeTaskPool::get();
-                 
-                 let task = thread_pool.spawn(async move {
-                     generate_planet_pixels(&p_type_clone, planet_seed)
-                 });
-                 
-                 // Placeholder Material (while loading)
-                 planet_entity.insert((
+                let p_type_clone = p_type.clone();
+                let thread_pool = AsyncComputeTaskPool::get();
+                let task = thread_pool
+                    .spawn(async move { generate_planet_pixels(&p_type_clone, planet_seed) });
+                planet_entity.insert((
                     MeshMaterial3d(std_materials.add(StandardMaterial {
-                        base_color: Color::WHITE, 
-                        perceptual_roughness: 1.0,
-                         ..default()
+                        base_color: Color::WHITE,
+                        ..default()
                     })),
-                    TextureBakeTask(task)
-                 ));
-
+                    TextureBakeTask(task),
+                ));
             } else {
-                 // Procedural
-                 let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
-                 planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
-                     base_color: col1,
-                     second_color: col2,
-                     seed: planet_seed,
-                     atmosphere_color: atmos_col,
-                     atmosphere_density: atmos_density,
-                     crater_map: noise_textures.crater_map.clone(),
-                     ridge_map: noise_textures.ridge_map.clone(),
-                     sediment_map: noise_textures.sediment_map.clone(),
-                     atlas_offset: Vec2::ZERO,
-                     atlas_scale: 1.0,
-                     use_atlas: 0,
-                     atlas_texture: atlas.atlas_handle.clone(), // Bind it even if not used
+                let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
+                planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
+                    base_color: col1,
+                    second_color: col2,
+                    seed: planet_seed,
+                    atmosphere_color: atmos_col,
+                    atmosphere_density: atmos_density,
+                    crater_map: noise_textures.crater_map.clone(),
+                    ridge_map: noise_textures.ridge_map.clone(),
+                    sediment_map: noise_textures.sediment_map.clone(),
+                    atlas_offset: Vec2::ZERO,
+                    atlas_scale: 1.0,
+                    use_atlas: 0,
+                    atlas_texture: atlas.atlas_handle.clone(),
                 })));
             }
-            
-            planet_entity
-            .observe(move |_trigger: Trigger<Pointer<Click>>, mut events: EventWriter<crate::universe::StarClicked>| {
-                events.send(crate::universe::StarClicked { entity: _trigger.entity(), cell });
-            })
-            .with_children(|planet| {
-                 // Planet Label
-                 let p_name = if is_custom {
-                     format!("{} (Planet)", planet_base_name)
-                 } else {
-                     format!("P {},{},{}", cell.x, cell.y, cell.z)
-                 };
 
-                 planet.spawn((
+            planet_entity.with_children(|planet| {
+                let p_name = if is_custom {
+                    format!("{} (Planet)", planet_base_name)
+                } else {
+                    format!("P {},{},{}", cell.x, cell.y, cell.z)
+                };
+
+                planet.spawn((
                     Text2d::new(p_name),
-                    TextFont { font_size: 80.0, ..default() }, // Slightly smaller than star
-                    TextColor(Color::srgb(0.8, 0.8, 1.0)), // Blueish
+                    TextFont {
+                        font_size: 80.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.8, 1.0)),
                     TextLayout::new_with_justify(JustifyText::Center),
-                    Transform::from_xyz(0.0, planet_size * 3.0, 0.0) // 3x radius
-                        .with_scale(Vec3::splat(1.0)),
-                    SystemLabel, // Will sync with DB name
-                 ));
+                    Transform::from_xyz(0.0, planet_size * 3.0, 0.0).with_scale(Vec3::splat(1.0)),
+                    SystemLabel,
+                ));
             });
         }
-    });
-
-    system_root
+    }
+    spawned_entities
 }
 
 // 1. Off-thread pixel generation
-fn generate_planet_pixels(
-    p_type: &PlanetType,
-    seed: f32,
-) -> Vec<u8> {
+fn generate_planet_pixels(p_type: &PlanetType, seed: f32) -> Vec<u8> {
     let size = 128; // Small texture for performance/style
     let mut pixels = Vec::with_capacity(size * size * 4);
     let (c1, c2) = p_type.get_palette(); // LinearRgba
-    
+
     // Convert LinearRgba to Vec3 for mixing
     let col1 = Vec3::new(c1.red, c1.green, c1.blue);
     let col2 = Vec3::new(c2.red, c2.green, c2.blue);
@@ -711,22 +838,22 @@ fn generate_planet_pixels(
             // Spherical Mapping approximation (just noise on 2D plane for now, usually needs equirectangular)
             // For simple "Planet Style", standard noise is okay if UVs are standard sphere.
             // Sphere mesh UVs are equirectangular.
-            
+
             let u = x as f32 / size as f32;
             let v = y as f32 / size as f32;
-            
+
             // Noise scale
             let scale = 10.0;
             let n = simple_noise(u * scale + seed, v * scale + seed);
-            
+
             // Mix colors
             let final_col = col1.lerp(col2, n);
-            
+
             pixels.extend_from_slice(&[
                 (final_col.x * 255.0) as u8,
                 (final_col.y * 255.0) as u8,
                 (final_col.z * 255.0) as u8,
-                255
+                255,
             ]);
         }
     }
@@ -755,11 +882,14 @@ fn bake_planet_texture(
 
     for y in 0..slot_size {
         let atlas_y = start_y + y;
-        let atlas_offset = (atlas_y as usize * atlas_stride) + (start_x as usize * bytes_per_pixel as usize);
+        let atlas_offset =
+            (atlas_y as usize * atlas_stride) + (start_x as usize * bytes_per_pixel as usize);
 
-        let slot_offset = (y as usize * slot_stride);
+        let slot_offset = y as usize * slot_stride;
 
-        if atlas_offset + slot_stride <= atlas.data.len() && slot_offset + slot_stride <= pixels.len() {
+        if atlas_offset + slot_stride <= atlas.data.len()
+            && slot_offset + slot_stride <= pixels.len()
+        {
             atlas.data[atlas_offset..atlas_offset + slot_stride]
                 .copy_from_slice(&pixels[slot_offset..slot_offset + slot_stride]);
         }
@@ -772,24 +902,27 @@ fn simple_noise(x: f32, y: f32) -> f32 {
     let j = y.floor();
     let f_x = x.fract();
     let f_y = y.fract();
-    
+
     // Hash
-    let rand = |dX: f32, dY: f32| -> f32 {
-        ((i + dX) * 12.9898 + (j + dY) * 78.233).sin().fract().abs()
+    let rand = |d_x: f32, d_y: f32| -> f32 {
+        ((i + d_x) * 12.9898 + (j + d_y) * 78.233)
+            .sin()
+            .fract()
+            .abs()
     };
-    
+
     let a = rand(0.0, 0.0);
     let b = rand(1.0, 0.0);
     let c = rand(0.0, 1.0);
     let d = rand(1.0, 1.0);
-    
+
     // Mix
     let u_x = f_x * f_x * (3.0 - 2.0 * f_x);
     let u_y = f_y * f_y * (3.0 - 2.0 * f_y);
-    
+
     let h1 = a + (b - a) * u_x;
     let h2 = c + (d - c) * u_x;
-    
+
     h1 + (h2 - h1) * u_y
 }
 

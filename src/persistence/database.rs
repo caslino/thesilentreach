@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result, params};
 use big_space::GridCell;
 use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
-use crate::universe::{SectorIndex, StarDetails};
+use crate::universe::{DetailedPlanet, PlanetType, SectorIndex, StarDetails};
 use serde::{Serialize, Deserialize};
 use serde_json;
 
@@ -102,6 +102,125 @@ impl Database {
         Ok(Database {
             conn: Arc::new(Mutex::new(conn)),
         })
+    }
+    pub fn seed_predefined_system(&self, scenario: &str) -> Result<()> {
+        if scenario != "our_system" {
+            return Ok(());
+        }
+
+        let sector = SectorIndex { x: 0, y: 0, z: 0 };
+        
+        // Check if sector is already in DB
+        if let Some(_) = self.get_sector_data(sector)? {
+            info!("PERSISTENCE: Sector (0,0,0) already seeded. Skipping predefined system.");
+            return Ok(());
+        }
+
+        info!("PERSISTENCE: Seeding 'Our System' to Sector (0,0,0)...");
+
+        let mut systems = Vec::new();
+        let center = GridCell::new(0, 0, 0);
+
+        // 1. Sun + Planets
+        let planets = vec![
+            DetailedPlanet {
+                name: "Mercury".to_string(),
+                planet_type: PlanetType::Ice, // Placeholder type for rocky small
+                distance: 4000.0,
+                size: 10.0,
+                color: Color::srgb(0.6, 0.6, 0.6),
+                second_color: Some(Color::srgb(0.4, 0.4, 0.4)),
+                atmosphere_color: None,
+                atmosphere_density: None,
+                orbit_speed: 0.047, // Relative orbital speed approx
+            },
+            DetailedPlanet {
+                name: "Venus".to_string(),
+                planet_type: PlanetType::Magma,
+                distance: 7000.0,
+                size: 25.0,
+                color: Color::srgb(0.9, 0.8, 0.5),
+                second_color: Some(Color::srgb(0.7, 0.6, 0.3)),
+                atmosphere_color: Some(Color::srgb(1.0, 0.9, 0.4)),
+                atmosphere_density: Some(2.0), // Very thick
+                orbit_speed: 0.035,
+            },
+            DetailedPlanet {
+                name: "Earth".to_string(),
+                planet_type: PlanetType::Terran,
+                distance: 10000.0,
+                size: 26.0,
+                color: Color::srgb(0.2, 0.5, 0.1), // Green
+                second_color: Some(Color::srgb(0.1, 0.3, 0.8)), // Blue Oceans
+                atmosphere_color: Some(Color::srgb(0.5, 0.7, 1.0)),
+                atmosphere_density: Some(1.0),
+                orbit_speed: 0.029,
+            },
+            DetailedPlanet {
+                name: "Mars".to_string(),
+                planet_type: PlanetType::Magma, // Rocky Red
+                distance: 15000.0,
+                size: 14.0,
+                color: Color::srgb(0.8, 0.4, 0.2),
+                second_color: Some(Color::srgb(0.6, 0.3, 0.1)),
+                atmosphere_color: Some(Color::srgb(0.9, 0.5, 0.3)),
+                atmosphere_density: Some(0.3), // Thin
+                orbit_speed: 0.024,
+            },
+            DetailedPlanet {
+                name: "Jupiter".to_string(),
+                planet_type: PlanetType::GasGiant,
+                distance: 25000.0,
+                size: 80.0,
+                color: Color::srgb(0.7, 0.5, 0.3),
+                second_color: Some(Color::srgb(0.9, 0.8, 0.6)),
+                atmosphere_color: Some(Color::srgb(0.8, 0.6, 0.4)),
+                atmosphere_density: Some(1.5),
+                orbit_speed: 0.013,
+            },
+            DetailedPlanet {
+                name: "Saturn".to_string(),
+                planet_type: PlanetType::GasGiant,
+                distance: 35000.0,
+                size: 70.0,
+                color: Color::srgb(0.8, 0.7, 0.5),
+                second_color: Some(Color::srgb(1.0, 0.9, 0.7)),
+                atmosphere_color: Some(Color::srgb(0.9, 0.8, 0.6)),
+                atmosphere_density: Some(1.3),
+                orbit_speed: 0.009,
+            },
+            DetailedPlanet {
+                name: "Uranus".to_string(),
+                planet_type: PlanetType::Ice,
+                distance: 45000.0,
+                size: 40.0,
+                color: Color::srgb(0.6, 0.9, 1.0),
+                second_color: Some(Color::srgb(0.5, 0.8, 0.9)),
+                atmosphere_color: Some(Color::srgb(0.7, 0.9, 1.0)),
+                atmosphere_density: Some(0.8),
+                orbit_speed: 0.006,
+            },
+            DetailedPlanet {
+                name: "Neptune".to_string(),
+                planet_type: PlanetType::Ice,
+                distance: 55000.0,
+                size: 38.0,
+                color: Color::srgb(0.2, 0.3, 1.0),
+                second_color: Some(Color::srgb(0.1, 0.2, 0.8)),
+                atmosphere_color: Some(Color::srgb(0.3, 0.4, 1.0)),
+                atmosphere_density: Some(0.9),
+                orbit_speed: 0.005,
+            },
+        ];
+
+        systems.push((center, StarDetails {
+            color: Color::srgb(1.0, 0.9, 0.5), // Sun
+            size: 150.0,
+            planets: Some(planets),
+        }));
+
+        self.save_sector_data(sector, &systems)?;
+        Ok(())
     }
 
 

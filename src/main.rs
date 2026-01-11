@@ -1,16 +1,15 @@
 use bevy::prelude::*;
 
-use thesilentreach::player::PlayerPlugin;
 use thesilentreach::persistence::PersistencePlugin;
+use thesilentreach::player::PlayerPlugin;
 
 use bevy::render::renderer::RenderAdapter;
 
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-use thesilentreach::universe::{UniversePlugin, RenderConfig, RenderMode};
+use thesilentreach::universe::{RenderConfig, RenderMode, UniversePlugin};
 
 mod effects;
-
 
 fn main() {
     // CLI Args Parsing
@@ -23,12 +22,29 @@ fn main() {
         println!("RENDER MODE: BAKED (High Performance) 🌍");
     }
 
+    let scenario = if let Some(pos) = args.iter().position(|x| x == "--scenario") {
+        args.get(pos + 1)
+            .cloned()
+            .unwrap_or_else(|| "default".to_string())
+    } else {
+        "default".to_string()
+    };
+    if scenario != "default" {
+        println!("SCENARIO: {} 🌌", scenario.to_uppercase());
+    }
+
+    let force_origin = args.contains(&"--origin".to_string());
+    if force_origin {
+        println!("COMMAND: TELEPORT TO ORIGIN 🚀");
+    }
+
     // 1. Setup non-blocking writer
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
 
     // 2. Configure our own subscriber
-    let filter_layer = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,bevy_hierarchy=error"));
+    let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,bevy_hierarchy=error")
+    });
 
     tracing_subscriber::registry()
         .with(filter_layer)
@@ -37,20 +53,26 @@ fn main() {
 
     App::new()
         .insert_resource(RenderConfig { mode: render_mode })
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                resolution: (450.0, 850.0).into(),
-                title: "The Silent Reach".to_string(),
-                ..default()
-            }),
-            ..default()
-        })
-        .disable::<bevy::log::LogPlugin>())
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        resolution: (450.0, 850.0).into(),
+                        title: "The Silent Reach".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .disable::<bevy::log::LogPlugin>(),
+        )
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(UniversePlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(effects::warp::WarpPlugin)
-        .add_plugins(PersistencePlugin)
+        .add_plugins(PersistencePlugin {
+            scenario,
+            force_origin,
+        })
         .add_systems(Startup, check_gpu)
         .run();
 }
