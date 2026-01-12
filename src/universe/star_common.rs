@@ -14,7 +14,12 @@ pub fn rand_f32(seed: u32) -> f32 {
 }
 
 // Generate Star Properties from Cell + UniverseSeed
-pub fn get_star_data(x: i64, y: i64, z: i64, uni_seed: u64) -> Option<(Color, f32)> {
+pub fn get_star_data(
+    x: i64,
+    y: i64,
+    z: i64,
+    uni_seed: u64,
+) -> Option<(crate::universe::StarType, Color, f32)> {
     // 1. Hash coordinates to a single u32 seed
     // We use a simple bit mixing for the inputs
     let mut seed = uni_seed as u32;
@@ -56,15 +61,34 @@ pub fn get_star_data(x: i64, y: i64, z: i64, uni_seed: u64) -> Option<(Color, f3
         return None;
     }
 
-    // 3. Properties
-    let rnd_r = rand_f32(pcg_hash(final_seed.wrapping_add(1)));
-    let rnd_g = rand_f32(pcg_hash(final_seed.wrapping_add(2)));
-    let rnd_b = rand_f32(pcg_hash(final_seed.wrapping_add(3)));
-    let rnd_size = rand_f32(pcg_hash(final_seed.wrapping_add(4)));
+    // 3. Determine Star Type
+    let rnd_type = rand_f32(pcg_hash(final_seed.wrapping_add(1)));
+    let star_type = if rnd_type < 0.1 {
+        crate::universe::StarType::BlueGiant // Rare
+    } else if rnd_type < 0.6 {
+        crate::universe::StarType::RedDwarf // Common
+    } else {
+        crate::universe::StarType::YellowDwarf // Average
+    };
 
-    let color = Color::srgb(rnd_r, rnd_g, rnd_b);
-    // size range 20.0 .. 100.0
-    let size = 20.0 + 80.0 * rnd_size;
+    // 4. Properties from Type
+    let rnd_size = rand_f32(pcg_hash(final_seed.wrapping_add(4))); // Keep same seed offset for stability
 
-    Some((color, size))
+    // Vary color slightly from base
+    let base_color = star_type.get_base_color();
+    let LinearRgba {
+        red, green, blue, ..
+    } = LinearRgba::from(base_color);
+
+    // Slight random variation (+/- 5%)
+    let tint_r = 0.95 + 0.1 * rand_f32(pcg_hash(final_seed.wrapping_add(2)));
+    let tint_g = 0.95 + 0.1 * rand_f32(pcg_hash(final_seed.wrapping_add(3)));
+    let tint_b = 0.95 + 0.1 * rand_f32(pcg_hash(final_seed.wrapping_add(5))); // New offset
+
+    let color = Color::srgb(red * tint_r, green * tint_g, blue * tint_b);
+
+    let (min_s, max_s) = star_type.get_size_range();
+    let size = min_s + (max_s - min_s) * rnd_size;
+
+    Some((star_type, color, size))
 }

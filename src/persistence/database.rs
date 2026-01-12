@@ -214,6 +214,7 @@ impl Database {
         ];
 
         systems.push((center, StarDetails {
+            star_type: crate::universe::StarType::YellowDwarf,
             color: Color::srgb(1.0, 0.9, 0.5), // Sun
             size: 150.0,
             planets: Some(planets),

@@ -336,12 +336,13 @@ fn generate_sector_data(
             for z in start_z..end_z {
                 let cell = GridCell::<i64>::new(x, y, z);
 
-                if let Some((color, size)) =
+                if let Some((star_type, color, size)) =
                     crate::universe::star_common::get_star_data(x, y, z, seed.0)
                 {
                     stars.push((
                         cell,
                         StarDetails {
+                            star_type,
                             color,
                             size,
                             planets: None,
@@ -613,6 +614,7 @@ fn spawn_star_with_data(
             Radius(data.size),
             Star,
             StarDetails {
+                star_type: data.star_type,
                 color: data.color,
                 size: data.size,
                 planets: None,
@@ -632,8 +634,9 @@ fn spawn_star_with_data(
             // Light
             star.spawn(PointLight {
                 color: data.color,
-                intensity: 10_000_000_000.0,
-                range: 2_000_000.0,
+                intensity: data.star_type.get_light_intensity(),
+                range: data.star_type.get_light_range(),
+                shadows_enabled: false, // Performance: Realtime shadows on many point lights is too expensive
                 ..default()
             });
 
@@ -659,7 +662,7 @@ fn spawn_star_with_data(
     if let Some(planets) = &data.planets {
         for planet_data in planets {
             let p_type = planet_data.planet_type;
-            let (col1, col2) = p_type.get_palette();
+            let (_col1, col2) = p_type.get_palette();
             let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
 
             let dist = planet_data.distance;

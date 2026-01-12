@@ -81,25 +81,42 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let animate_speed = 0.2;
     // Use globals.time
     let time = mesh_view_bindings::globals.time;
+    
+    // Layer 1: Base Turbulence
     let noise_pos = normalize(in.world_position.xyz) * 4.0 + vec3<f32>(material.seed) + vec3<f32>(time * animate_speed);
-    let n = fbm(noise_pos);
+    let n1 = fbm(noise_pos);
+    
+    // Layer 2: Solar Flares / Tendrils (Higher freq, moving upwards or swirling)
+    // We can simulate swirling by rotating the position based on time
+    let swirl_pos = normalize(in.world_position.xyz) * 8.0 + vec3<f32>(time * 0.5); 
+    let n2 = fbm(swirl_pos);
+    
+    // Combine noises
+    let n = mix(n1, n2, 0.4); // Blend
     
     // 2. Heat Gradient
     // Map noise (0..1) to Color Gradient (Darker -> Brighter -> White Hot)
-    let heat = smoothstep(0.2, 0.9, n);
-    let base_color = material.color.rgb;
-    let hot_color = vec3<f32>(1.0, 1.0, 0.8); // White-Yellowish
+    let heat = smoothstep(0.1, 0.9, n); // Sharper transition
     
-    var final_color = mix(base_color * 0.5, base_color * 1.5, heat);
-    final_color = mix(final_color, hot_color, smoothstep(0.7, 1.0, n));
+    let base_color = material.color.rgb;
+    // "Blinding" white hot core
+    let hot_color = vec3<f32>(2.0, 2.0, 1.8); 
+    
+    var final_color = mix(base_color * 0.2, base_color * 3.0, heat);
+    final_color = mix(final_color, hot_color, smoothstep(0.6, 1.0, n));
 
     // 3. Fresnel / Atmosphere Glow
     let view_dir = normalize(mesh_view_bindings::view.world_position.xyz - in.world_position.xyz);
     let normal = normalize(in.world_normal);
     let fresnel = 1.0 - max(dot(view_dir, normal), 0.0);
-    let rim = pow(fresnel, 3.0);
     
-    final_color += base_color * rim * 2.0;
+    // Rim glow should be the base color but very bright
+    let rim = pow(fresnel, 2.5);
+    final_color += base_color * rim * 8.0;
 
-    return vec4<f32>(final_color * 10.0, 1.0);
+    // Emissive Push: Multiply everything to drive Bloom
+    // This is the key "Radiance" factor
+    let emission_strength = 20.0; // Blindingly bright
+
+    return vec4<f32>(final_color * emission_strength, 1.0);
 }

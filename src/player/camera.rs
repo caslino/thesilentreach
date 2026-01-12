@@ -126,10 +126,13 @@ fn setup_camera(
                 ship.spawn((
                     Camera3d::default(),
                     HeadCamera,
-                    bevy::core_pipeline::bloom::Bloom::NATURAL, // Enable Bloom (Disabled for FPS)
+                    bevy::core_pipeline::bloom::Bloom {
+                        intensity: 0.8, // Increased glow (was Natural ~0.3-0.5 equiv)
+                        ..default()
+                    },
                     bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Better exposure
                     Projection::from(PerspectiveProjection {
-                        far: 10_000_000.0,
+                        far: 10_000_000.0, // Infinite horizon
                         ..default()
                     }),
                     Transform::default(),
@@ -147,7 +150,7 @@ fn ship_controls(
         &Children,
     )>,
     mut q_head: Query<(&mut Transform, &HeadCamera), Without<ZenCamera>>,
-    input: Res<VehicleInput>,
+    mut input: ResMut<VehicleInput>,
     acs: Res<AntiCollisionState>,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -241,6 +244,11 @@ fn ship_controls(
 
             let accel = (input.throttle * current_thrust_power) / SHIP_MASS;
             ship_velocity.0 += forward * accel * dt;
+        }
+
+        // Auto-Disengage Warp when stopped
+        if input.warp_mode && input.throttle == 0.0 && ship_velocity.0.length_squared() < 10.0 {
+            input.warp_mode = false;
         }
     }
 }

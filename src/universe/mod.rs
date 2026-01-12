@@ -59,9 +59,52 @@ pub struct Orbit {
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
 pub struct StarDetails {
+    pub star_type: StarType,
     pub color: Color,
     pub size: f32,
     pub planets: Option<Vec<DetailedPlanet>>,
+}
+
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq)]
+pub enum StarType {
+    BlueGiant,
+    YellowDwarf,
+    RedDwarf,
+    // NeutronStar, // Future expansion?
+}
+
+impl StarType {
+    pub fn get_base_color(&self) -> Color {
+        match self {
+            StarType::BlueGiant => Color::srgb(0.2, 0.4, 1.0), // Deep Hot Blue
+            StarType::YellowDwarf => Color::srgb(1.0, 0.9, 0.6), // Sun-like
+            StarType::RedDwarf => Color::srgb(1.0, 0.3, 0.1),  // Dim Red
+        }
+    }
+
+    pub fn get_size_range(&self) -> (f32, f32) {
+        match self {
+            StarType::BlueGiant => (80.0, 150.0),
+            StarType::YellowDwarf => (40.0, 70.0),
+            StarType::RedDwarf => (15.0, 35.0),
+        }
+    }
+
+    pub fn get_light_intensity(&self) -> f32 {
+        match self {
+            StarType::BlueGiant => 50_000_000_000.0,
+            StarType::YellowDwarf => 10_000_000_000.0,
+            StarType::RedDwarf => 2_000_000_000.0,
+        }
+    }
+
+    pub fn get_light_range(&self) -> f32 {
+        match self {
+            StarType::BlueGiant => 5_000_000.0,
+            StarType::YellowDwarf => 2_000_000.0,
+            StarType::RedDwarf => 800_000.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Reflect)]

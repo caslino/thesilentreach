@@ -3,7 +3,6 @@ use crate::player::input::VehicleInput;
 use crate::player::prediction::AntiCollisionState;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
-use big_space::GridCell;
 
 pub struct HudPlugin;
 
@@ -15,7 +14,7 @@ impl Plugin for HudPlugin {
 }
 
 use crate::player::navigation::NavigationClues;
-use crate::universe::SystemSavedEvent; // Import Event
+use crate::universe::SystemSavedEvent;
 
 #[derive(Component)]
 struct ThrottleText;
@@ -40,15 +39,23 @@ struct SavedToastText {
     timer: Timer,
 }
 
+#[derive(Component)]
+struct HudRoot;
+
 fn setup_hud(mut commands: Commands) {
+    // Main HUD Container (Bottom Left)
     commands
-        .spawn((Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(20.0),
-            left: Val::Px(20.0),
-            flex_direction: FlexDirection::Column,
-            ..default()
-        },))
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(20.0),
+                left: Val::Px(20.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexStart,
+                ..default()
+            },
+            HudRoot,
+        ))
         .with_children(|parent| {
             // Throttle Indicator
             parent.spawn((
@@ -83,7 +90,7 @@ fn setup_hud(mut commands: Commands) {
                 WarpText,
             ));
 
-            // Anti-Collision Warning
+            // Anti-Collision Warning (Hidden by default via Display::None)
             parent.spawn((
                 Text::new("ANTI-COLLISION ACTIVATED"),
                 TextFont {
@@ -92,23 +99,29 @@ fn setup_hud(mut commands: Commands) {
                 },
                 TextColor(Color::srgb(1.0, 0.0, 0.0)),
                 AntiCollisionText,
-                Visibility::Hidden,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
             ));
 
-            // Navigation Display
+            // Navigation Display (Hidden by default via Display::None)
             parent.spawn((
                 Text::new("SYSTEM BOOT...\nCalculating Position..."),
                 TextFont {
                     font_size: 16.0,
-                    // font: monopsaced if possible, check assets?
                     ..default()
                 },
                 TextColor(Color::srgb(0.5, 1.0, 0.5)), // Retro Green
                 NavText,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
             ));
         });
 
-    // FPS Counter (Top Right)
+    // FPS Counter (Bottom Right)
     commands.spawn((
         Text::new("FPS: 0"),
         TextFont {
@@ -123,9 +136,10 @@ fn setup_hud(mut commands: Commands) {
             ..default()
         },
         FpsText,
+        HudRoot,
     ));
 
-    // Saved Toast (Hidden by default)
+    // Saved Toast
     commands.spawn((
         Text::new("SYSTEM DATA SAVED"),
         TextFont {
@@ -136,14 +150,15 @@ fn setup_hud(mut commands: Commands) {
         Node {
             position_type: PositionType::Absolute,
             top: Val::Percent(15.0),
-            left: Val::Percent(50.0),              // Centered horizontally
-            margin: UiRect::left(Val::Px(-100.0)), // Offset by half width approx
+            left: Val::Percent(50.0),
+            margin: UiRect::left(Val::Px(-100.0)),
             ..default()
         },
         Visibility::Hidden,
         SavedToastText {
             timer: Timer::from_seconds(3.0, TimerMode::Once),
         },
+        HudRoot,
     ));
 }
 
@@ -159,13 +174,29 @@ fn update_hud(
         Query<&mut Text, With<FpsText>>,
         Query<&mut Text, With<WarpText>>,
     )>,
-    mut q_warning: Query<&mut Visibility, (With<AntiCollisionText>, Without<NavText>)>,
-    mut q_nav_vis: Query<&mut Visibility, (With<NavText>, Without<AntiCollisionText>)>,
+    mut q_warning_node: Query<&mut Node, (With<AntiCollisionText>, Without<NavText>)>,
+    mut q_nav_node: Query<&mut Node, (With<NavText>, Without<AntiCollisionText>)>,
+    mut q_hud_root: Query<
+        &mut Visibility,
+        (With<HudRoot>, Without<AntiCollisionText>, Without<NavText>),
+    >,
     diagnostics: Res<DiagnosticsStore>,
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>, // For Toggle
-    mut nav_visible: Local<bool>,    // Local State
+    keys: Res<ButtonInput<KeyCode>>,
+    mut nav_visible: Local<bool>,
 ) {
+    // Cinematic Mode Toggle (L) - Uses Visibility to hide everything
+    if keys.just_pressed(KeyCode::KeyL) {
+        for mut vis in q_hud_root.iter_mut() {
+            if *vis == Visibility::Hidden {
+                *vis = Visibility::Visible;
+            } else {
+                *vis = Visibility::Hidden;
+            }
+        }
+    }
+
+    // Update Text Content
     if let Ok(mut text) = text_queries.p0().get_single_mut() {
         text.0 = format!("Throttle: {:.0}%", input.throttle * 100.0);
     }
@@ -185,23 +216,23 @@ fn update_hud(
         }
     }
 
-    if let Ok(mut vis) = q_warning.get_single_mut() {
+    // Toggle Warning Display
+    if let Ok(mut node) = q_warning_node.get_single_mut() {
         if acs.is_active {
-            *vis = Visibility::Visible;
+            node.display = Display::Flex;
         } else {
-            *vis = Visibility::Hidden;
+            node.display = Display::None;
         }
     }
 
-    // Toggle Nav
+    // Toggle Nav Display
     if keys.just_pressed(KeyCode::KeyH) {
         *nav_visible = !*nav_visible;
     }
 
-    // Update Navigation UI
-    if let Ok(mut vis) = q_nav_vis.get_single_mut() {
+    if let Ok(mut node) = q_nav_node.get_single_mut() {
         if *nav_visible {
-            *vis = Visibility::Visible;
+            node.display = Display::Flex;
             if let Ok(mut text) = text_queries.p2().get_single_mut() {
                 let age = time.elapsed_secs();
                 if age < 5.0 {
@@ -232,7 +263,7 @@ fn update_hud(
                 }
             }
         } else {
-            *vis = Visibility::Hidden;
+            node.display = Display::None;
         }
     }
 
@@ -245,9 +276,6 @@ fn update_hud(
         }
     }
 }
-
-// --- DISCOVERY UI REMOVED ---
-// use crate::persistence::{CurrentSystemData, Database};
 
 // --- TOAST SYSTEM ---
 fn system_saved_toast_system(
