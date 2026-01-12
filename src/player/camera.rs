@@ -16,11 +16,23 @@ pub struct ZenCameraPlugin;
 impl Plugin for ZenCameraPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(60.0)) // Target 60Hz Physics
+            .insert_resource(GravityConfig::default())
             .add_systems(Startup, setup_camera)
             .add_systems(
                 FixedUpdate,
                 (ship_controls, apply_gravity, physics_step).chain(),
             );
+    }
+}
+
+#[derive(Resource)]
+pub struct GravityConfig {
+    pub max_bodies: usize,
+}
+
+impl Default for GravityConfig {
+    fn default() -> Self {
+        Self { max_bodies: 3 }
     }
 }
 
@@ -236,6 +248,7 @@ fn ship_controls(
 fn apply_gravity(
     mut ship_query: Query<(&GridCell<i64>, &Transform, &mut Velocity), With<ZenCamera>>,
     mass_query: Query<(&GridCell<i64>, &Transform, &Mass, &Radius)>,
+    config: Res<GravityConfig>,
     time: Res<Time>,
 ) {
     let Ok((ship_cell, ship_pos, mut ship_vel)) = ship_query.get_single_mut() else {
@@ -248,9 +261,9 @@ fn apply_gravity(
     let max_range = 50_000.0;
     let max_range_sq = max_range * max_range;
 
-    // Find nearest 3 bodies (Single Pass, No Allocation)
+    // Collect all bodies within range
     // We store (dist_sq, vec, mass, radius)
-    let mut nearest = [(f32::MAX, Vec3::ZERO, 0.0, 0.0); 3]; // Fixed size array
+    let mut candidates: Vec<(f32, Vec3, f32, f32)> = Vec::new();
 
     for (body_cell, body_pos, mass, radius) in mass_query.iter() {
         // Coarse Grid Check: If cell distance is too large, skip expensive float Math
@@ -272,27 +285,19 @@ fn apply_gravity(
         let distance_sq = relative_pos.length_squared();
 
         if distance_sq > 0.1 && distance_sq < max_range_sq {
-            // Insertion Sort into fixed array
-            let entry = (distance_sq, relative_pos, mass.0, radius.0);
-            if entry.0 < nearest[0].0 {
-                nearest[2] = nearest[1];
-                nearest[1] = nearest[0];
-                nearest[0] = entry;
-            } else if entry.0 < nearest[1].0 {
-                nearest[2] = nearest[1];
-                nearest[1] = entry;
-            } else if entry.0 < nearest[2].0 {
-                nearest[2] = entry;
-            }
+            candidates.push((distance_sq, relative_pos, mass.0, radius.0));
         }
     }
 
-    // Apply forces
-    for (dist_sq, vec, mass, radius) in nearest.iter() {
-        if *dist_sq == f32::MAX {
-            continue;
-        }
+    // Sort by distance (ascending)
+    // Since f32 doesn't implement Ord, we use partial_cmp
+    candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
+    // Limit to configured max_bodies
+    let limit = config.max_bodies.min(candidates.len());
+
+    // Apply forces
+    for (dist_sq, vec, mass, radius) in candidates.iter().take(limit) {
         let distance = dist_sq.sqrt();
         let direction = *vec / distance;
 
