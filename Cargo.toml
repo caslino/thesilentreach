@@ -2,6 +2,7 @@
 name = "thesilentreach"
 version = "0.1.0"
 edition = "2024"
+default-run = "thesilentreach"
 
 [dependencies]
 bevy = "0.15"

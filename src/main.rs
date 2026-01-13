@@ -33,6 +33,17 @@ fn main() {
         println!("SCENARIO: {} 🌌", scenario.to_uppercase());
     }
 
+    // Resolution, Directory, and Blink Duration parsing
+    let (width, height, output_dir, blink_duration) = if args.contains(&"shorts".to_string()) {
+        println!("MODE: SHORTS (1080x1920) 📱");
+        (1080.0, 1920.0, "recordings/shorts".to_string(), 1.0) // Slower blink for shorts
+    } else if args.contains(&"video".to_string()) {
+        println!("MODE: VIDEO (1920x1080) 🎥");
+        (1920.0, 1080.0, "recordings/videos".to_string(), 2.0) // Very slow blink for video
+    } else {
+        (450.0, 850.0, ".".to_string(), 0.5) // Default
+    };
+
     let force_origin = args.contains(&"--origin".to_string());
     if force_origin {
         println!("COMMAND: TELEPORT TO ORIGIN 🚀");
@@ -53,11 +64,15 @@ fn main() {
 
     App::new()
         .insert_resource(RenderConfig { mode: render_mode })
+        .insert_resource(thesilentreach::recorder::RecordingDirectory(output_dir))
+        .insert_resource(thesilentreach::recorder::RecordingBlinkDuration(
+            blink_duration,
+        ))
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        resolution: (450.0, 850.0).into(),
+                        resolution: (width, height).into(),
                         title: "The Silent Reach".to_string(),
                         ..default()
                     }),
@@ -73,6 +88,7 @@ fn main() {
             scenario,
             force_origin,
         })
+        .add_plugins(thesilentreach::recorder::RecorderPlugin)
         .add_systems(Startup, check_gpu)
         .run();
 }
