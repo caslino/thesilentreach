@@ -257,10 +257,10 @@ impl Plugin for UniversePlugin {
             .add_plugins(terrain::TerrainPlugin)
             .add_event::<StarClicked>()
             .add_event::<SystemSavedEvent>()
-            // Global Ambient Light so things aren't pitch black
+            // Reduced ambient light for proper shadows and 3D planet appearance
             .insert_resource(AmbientLight {
                 color: Color::WHITE,
-                brightness: 80.0,
+                brightness: 15.0, // Low for space (was 80.0 - too bright, washed out shadows)
             });
     }
 }

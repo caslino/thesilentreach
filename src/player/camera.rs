@@ -127,10 +127,18 @@ fn setup_camera(
                     Camera3d::default(),
                     HeadCamera,
                     bevy::core_pipeline::bloom::Bloom {
-                        intensity: 0.3, // "Natural" aesthetic
+                        intensity: 0.15, // Subtle glow, not foggy
+                        composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
                         ..default()
                     },
-                    bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Better exposure
+                    bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Preserves color saturation
+                    bevy::render::view::ColorGrading {
+                        global: bevy::render::view::ColorGradingGlobal {
+                            exposure: -1.0, // Darker space, brighter lights
+                            ..default()
+                        },
+                        ..default()
+                    },
                     Projection::from(PerspectiveProjection {
                         far: 10_000_000.0, // Infinite horizon
                         ..default()

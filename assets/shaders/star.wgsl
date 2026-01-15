@@ -75,49 +75,113 @@ fn fbm(p: vec3<f32>) -> f32 {
     return v;
 }
 
+// --- VORONOI FOR GRANULATION ---
+fn voronoi(p: vec3<f32>) -> vec2<f32> {
+    let cell = floor(p);
+    let frac_p = fract(p);
+    
+    var min_dist = 8.0;
+    var second_dist = 8.0;
+    
+    for (var z = -1; z <= 1; z++) {
+        for (var y = -1; y <= 1; y++) {
+            for (var x = -1; x <= 1; x++) {
+                let neighbor = vec3<f32>(f32(x), f32(y), f32(z));
+                let point = hash3(cell + neighbor);
+                let diff = neighbor + point - frac_p;
+                let dist = dot(diff, diff);
+                
+                if (dist < min_dist) {
+                    second_dist = min_dist;
+                    min_dist = dist;
+                } else if (dist < second_dist) {
+                    second_dist = dist;
+                }
+            }
+        }
+    }
+    
+    return vec2<f32>(sqrt(min_dist), sqrt(second_dist));
+}
+
+fn hash3(p: vec3<f32>) -> vec3<f32> {
+    var q = vec3<f32>(
+        dot(p, vec3<f32>(127.1, 311.7, 74.7)),
+        dot(p, vec3<f32>(269.5, 183.3, 246.1)),
+        dot(p, vec3<f32>(113.5, 271.9, 124.6))
+    );
+    return fract(sin(q) * 43758.5453123);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let time = mesh_view_bindings::globals.time;
-
-    // 1. Dynamic Noise Surface
-    // We layer two frequencies of noise to create "roiling" plasma
-    let animate_speed = 0.2;
-    let shift = vec3<f32>(time * animate_speed);
+    let sphere_pos = normalize(in.world_position.xyz);
     
-    let pos_fast = normalize(in.world_position.xyz) * 6.0 + shift;
-    let pos_slow = normalize(in.world_position.xyz) * 2.0 + vec3<f32>(material.seed);
+    // --- 1. GRANULATION (Convection Cells) ---
+    let gran_scale = 12.0;
+    let gran_speed = 0.05;
+    let gran_pos = sphere_pos * gran_scale + vec3<f32>(sin(time * gran_speed), cos(time * gran_speed * 0.7), 0.0);
+    let vor = voronoi(gran_pos);
+    let cell_edge = smoothstep(0.0, 0.15, vor.y - vor.x); // Dark edges between cells
+    let granulation = mix(0.7, 1.0, cell_edge);
     
-    let n_fast = fbm(pos_fast);
-    let n_slow = fbm(pos_slow);
-    let n = mix(n_slow, n_fast, 0.6);
-
-    // 2. Color Gradient (Black Body Simulation approximation)
+    // --- 2. TURBULENT PLASMA FLOW ---
+    let plasma_speed = 0.15;
+    let shift = vec3<f32>(time * plasma_speed, time * plasma_speed * 0.7, material.seed);
+    
+    // Multi-scale turbulence
+    let turb1 = fbm(sphere_pos * 4.0 + shift);
+    let turb2 = fbm(sphere_pos * 8.0 - shift * 0.5);
+    let turb3 = fbm(sphere_pos * 16.0 + shift * 1.5);
+    let turbulence = turb1 * 0.5 + turb2 * 0.35 + turb3 * 0.15;
+    
+    // --- 3. HOT SPOTS (Active Regions) ---
+    let hot_pos = sphere_pos * 3.0 + vec3<f32>(material.seed * 0.1);
+    let hot_noise = fbm(hot_pos + vec3<f32>(time * 0.1));
+    let hot_spots = smoothstep(0.55, 0.75, hot_noise);
+    
+    // --- 4. COLOR GRADIENT ---
+    // K-type orange dwarf: bright yellow-orange core, deeper orange-red edges
     let base_color = material.color.rgb;
-    let core_color = vec3<f32>(1.0, 1.0, 1.0) * 3.0; // Hot white core
     
-    // Mix based on noise intensity
-    // Hot spots are brighter
-    let heat = smoothstep(0.2, 0.8, n);
-    var color = mix(base_color, core_color, heat * heat);
-
-    // 3. Fresnel Glow (Corona)
-    // The edge of the star should glow intensely
+    // Brighter core color (shift toward yellow)
+    let core_color = base_color + vec3<f32>(0.3, 0.15, 0.0);
+    // Darker edge color (shift toward red-orange)  
+    let edge_color = base_color * vec3<f32>(0.9, 0.6, 0.4);
+    
+    // Fresnel for edge detection
     let view_dir = normalize(mesh_view_bindings::view.world_position.xyz - in.world_position.xyz);
     let normal = normalize(in.world_normal);
-    let fresnel = 1.0 - max(dot(view_dir, normal), 0.0);
+    let rim = 1.0 - max(dot(view_dir, normal), 0.0);
+    let rim_factor = pow(rim, 1.5);
     
-    let corona_intensity = pow(fresnel, 3.0);
-    color += base_color * corona_intensity * 10.0;
-
-    // 4. HDR Bloom Push
-    // Multiply the final color by a high value to force it into the HDR range for Bloom
-    // 4. Hot Core Logic (Fix White Star)
-    // We want the center to be hot white, but the edges to retain color
-    let intensity = 20.0;
-    let glow = mix(material.color.rgb, vec3<f32>(1.0, 1.0, 1.0), heat * 0.5);
+    // Mix core to edge based on rim and turbulence
+    var surface_color = mix(core_color, edge_color, rim_factor * 0.6);
     
-    // Add corona to glow
-    let final_col = glow + (material.color.rgb * corona_intensity * 2.0);
-
-    return vec4<f32>(final_col * intensity, 1.0);
+    // Apply granulation (darker between cells)
+    surface_color *= granulation;
+    
+    // Apply turbulence variation
+    let turb_brightness = 0.85 + turbulence * 0.3;
+    surface_color *= turb_brightness;
+    
+    // Hot spots add brightness and yellow tint
+    surface_color += hot_spots * vec3<f32>(0.4, 0.2, 0.0);
+    
+    // --- 5. CORONA GLOW ---
+    let corona_power = 4.0;
+    let corona_intensity = pow(rim, corona_power) * 0.8;
+    let corona_color = base_color * 1.2;
+    surface_color += corona_color * corona_intensity;
+    
+    // --- 6. LIMB DARKENING ---
+    // Real stars are brighter at center, darker at edges
+    let limb_darkening = 1.0 - rim_factor * 0.3;
+    surface_color *= limb_darkening;
+    
+    // --- 7. HDR OUTPUT ---
+    let intensity = 6.0;
+    
+    return vec4<f32>(surface_color * intensity, 1.0);
 }
