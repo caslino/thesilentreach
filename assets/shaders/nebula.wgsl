@@ -67,8 +67,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let ray_dir = normalize(in.world_position.xyz - ray_origin);
     
     // Raymarching params
-    let steps = 32;
-    let step_size = 200.0; // Huge steps for space
+    let steps = 64;
+    let step_size = 500.0; // Larger steps for larger volume
     let max_dist = f32(steps) * step_size;
     
     var current_pos = ray_origin + ray_dir * 10.0; // Start slightly offset

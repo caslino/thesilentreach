@@ -58,7 +58,9 @@ fn vertex(input: VertexInput) -> VertexOutput {
     out.uv = input.uv;
     
     // Color based on index or something
-    out.color = elements[input.instance_index].color;
+    let col = elements[input.instance_index].color;
+    // Force alpha 1.0 just in case buffer has 0.0
+    out.color = vec4<f32>(col.rgb, 1.0);
     
     return out;
 }

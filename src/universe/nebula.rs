@@ -43,7 +43,8 @@ fn spawn_nebula_volume(
     mut materials: ResMut<Assets<NebulaMaterial>>,
 ) {
     // Huge box encapsulating the camera view
-    let size = 20000.0;
+    // Increase size significantly to ensure we don't clip
+    let size = 100_000.0;
     let mesh = meshes.add(Cuboid::from_size(Vec3::splat(size)));
 
     let material = materials.add(NebulaMaterial {
