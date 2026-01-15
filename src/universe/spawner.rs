@@ -498,21 +498,24 @@ fn despawn_distant_systems(
     q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
     mut atlas: ResMut<PlanetTextureAtlas>,
     q_children: Query<&Children>,
+    // Asset Cleanup Resources
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    mut star_materials: ResMut<Assets<StarMaterial>>,
+    q_planet_mat: Query<&MeshMaterial3d<PlanetMaterial>>,
+    q_star_mat: Query<&MeshMaterial3d<StarMaterial>>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else {
         return;
     };
-    let _removal_radius = 2; // Keep closer than previously (previously 6). Now > 1 is Distant/GPU? 
-    // If detail_radius is 1, then >1 is handled by GPU.
-    // So distinct entities should be removed if > 1.
-    // Let's set to 2 to have some margin.
-    // BUT we must despawn them if we are swapping to GPU.
-    // Fix loop: full_radius must encompass the area spawned by sync_universe_view.
-    // detail_radius is 1 sector. 1 sector = 10 units.
-    // Max distance to a neighbor sector cell: ~20 units.
-    // Safe margin: 25.
-    let full_radius = 35;
-    let gpu_radius = 60; // 6 sectors * 10
+
+    // Tuning: Reduced radii to be closer to view distance to prevent zombie entities
+    // view_radius is 1 sector (approx 10-15 units diag).
+    // Set full_radius to 20 to allow small buffer.
+    let full_radius = 20;
+
+    // gpu view_radius is 5 sectors.
+    // Set gpu_radius to 8 sectors to clear things behind us reasonably fast.
+    let gpu_radius = 8;
 
     // Handle Full Cells
     tracker.spawned_cells.retain(|cell, entities| {
@@ -522,15 +525,29 @@ fn despawn_distant_systems(
         let dist = dx.max(dy).max(dz);
 
         if dist > full_radius {
-            // Check for children (planets) that might have atlas slots
+            // Check for children (planets/stars) to clean up resources
             for entity in entities {
                 if let Ok(children) = q_children.get(*entity) {
                     for child in children.iter() {
+                        // 1. Release Atlas Slot
                         if let Some(slot) = atlas.slot_map.remove(child) {
                             atlas.available_slots.push(slot);
                         }
+
+                        // 2. Cleanup Unique Materials (Asset Leak Fix)
+                        if let Ok(mat_handle) = q_planet_mat.get(*child) {
+                            planet_materials.remove(&mat_handle.0);
+                        }
+                        if let Ok(mat_handle) = q_star_mat.get(*child) {
+                            star_materials.remove(&mat_handle.0);
+                        }
                     }
                 }
+                // Check root itself (rarely has material, but good practice if structure changes)
+                if let Ok(mat_handle) = q_star_mat.get(*entity) {
+                    star_materials.remove(&mat_handle.0);
+                }
+
                 commands.entity(*entity).despawn_recursive();
             }
             false
