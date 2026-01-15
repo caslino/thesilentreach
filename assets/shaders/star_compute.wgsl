@@ -83,7 +83,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Handling (0,0,0) global check might be tricky if we wrap coords. 
     // Assuming simple check for now match:
     let is_origin = (abs_x == 0 && abs_y == 0 && abs_z == 0);
-    var threshold = 0.001;
+    var threshold = 0.0002;
     if (is_origin) { threshold = 1.0; }
 
     if (exists_val > threshold) {

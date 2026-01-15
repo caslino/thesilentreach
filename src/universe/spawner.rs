@@ -450,13 +450,10 @@ fn sync_universe_view(
                 // FULL Logic
                 else {
                     // We want FULL stars.
-                    // 1. Despawn GPU Sector if exists
-                    if let Some(entity) = tracker.spawned_sectors.remove(&sector_idx) {
-                        commands.entity(entity).despawn_recursive();
-                    }
-
-                    // 2. Ensure Full stars spawned (if data exists)
+                    // We want FULL stars.
+                    // Only switch if data is ready
                     if let Some(stars) = galaxy_map.sectors.get(&sector_idx) {
+                        // 1. Spawn Full Stars
                         for (cell, star_data) in stars {
                             if !tracker.spawned_cells.contains_key(cell) {
                                 let entities = spawn_star_with_data(
@@ -478,6 +475,11 @@ fn sync_universe_view(
                                 );
                                 tracker.spawned_cells.insert(*cell, entities);
                             }
+                        }
+
+                        // 2. Despawn GPU Sector (Now that full stars are spawning)
+                        if let Some(entity) = tracker.spawned_sectors.remove(&sector_idx) {
+                            commands.entity(entity).despawn_recursive();
                         }
                     }
                 }
@@ -508,7 +510,7 @@ fn despawn_distant_systems(
     // detail_radius is 1 sector. 1 sector = 10 units.
     // Max distance to a neighbor sector cell: ~20 units.
     // Safe margin: 25.
-    let full_radius = 25;
+    let full_radius = 35;
     let gpu_radius = 60; // 6 sectors * 10
 
     // Handle Full Cells
@@ -660,57 +662,141 @@ fn spawn_star_with_data(
 
     // Planets
     if let Some(planets) = &data.planets {
-        for planet_data in planets {
-            let p_type = planet_data.planet_type;
-            let (_col1, col2) = p_type.get_palette();
-            let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
+        commands.entity(system_root).with_children(|root| {
+            for planet_data in planets {
+                let p_type = planet_data.planet_type;
+                let (_col1, col2) = p_type.get_palette();
+                let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
 
-            let dist = planet_data.distance;
-            let angle = (dist as f32 * 0.123f32).sin() * std::f32::consts::TAU;
-            let x = dist * angle.cos();
-            let z = dist * angle.sin();
+                let dist = planet_data.distance;
+                let angle = (dist as f32 * 0.123f32).sin() * std::f32::consts::TAU;
+                let x = dist * angle.cos();
+                let z = dist * angle.sin();
 
-            let mut planet_entity = commands.spawn((
-                Mesh3d(common_meshes.unit_sphere_low.clone()),
-                Mass(10_000.0),
-                Radius(planet_data.size),
-                Planet,
-                crate::universe::Orbit {
-                    radius: dist,
-                    speed: planet_data.orbit_speed,
-                    angle,
-                },
-                PlanetDetails(p_type),
-                Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_data.size)),
-            ));
-            spawned_entities.push(planet_entity.id());
-
-            if render_config.mode == RenderMode::Baked {
-                let p_type_clone = p_type.clone();
-                let thread_pool = AsyncComputeTaskPool::get();
-                let task =
-                    thread_pool.spawn(async move { generate_planet_pixels(&p_type_clone, dist) });
-                planet_entity.insert((
-                    MeshMaterial3d(std_materials.add(StandardMaterial {
-                        base_color: planet_data.color,
-                        ..default()
-                    })),
-                    TextureBakeTask(task),
+                let mut planet_entity = root.spawn((
+                    Mesh3d(common_meshes.unit_sphere_low.clone()),
+                    Mass(10_000.0),
+                    Radius(planet_data.size),
+                    Planet,
+                    crate::universe::Orbit {
+                        radius: dist,
+                        speed: planet_data.orbit_speed,
+                        angle,
+                    },
+                    PlanetDetails(p_type),
+                    Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_data.size)),
                 ));
-            } else {
-                planet_entity.insert(MeshMaterial3d(
-                    planet_materials.add(PlanetMaterial {
-                        base_color: LinearRgba::from(planet_data.color),
-                        second_color: LinearRgba::from(
-                            planet_data.second_color.unwrap_or(Color::from(col2)),
-                        ),
-                        seed: dist,
-                        atmosphere_color: LinearRgba::from(
-                            planet_data
-                                .atmosphere_color
-                                .unwrap_or(Color::from(atmos_col)),
-                        ),
-                        atmosphere_density: planet_data.atmosphere_density.unwrap_or(atmos_density),
+
+                if render_config.mode == RenderMode::Baked {
+                    let p_type_clone = p_type.clone();
+                    let thread_pool = AsyncComputeTaskPool::get();
+                    let task = thread_pool
+                        .spawn(async move { generate_planet_pixels(&p_type_clone, dist) });
+                    planet_entity.insert((
+                        MeshMaterial3d(std_materials.add(StandardMaterial {
+                            base_color: planet_data.color,
+                            ..default()
+                        })),
+                        TextureBakeTask(task),
+                    ));
+                } else {
+                    planet_entity.insert(MeshMaterial3d(
+                        planet_materials.add(PlanetMaterial {
+                            base_color: LinearRgba::from(planet_data.color),
+                            second_color: LinearRgba::from(
+                                planet_data.second_color.unwrap_or(Color::from(col2)),
+                            ),
+                            seed: dist,
+                            atmosphere_color: LinearRgba::from(
+                                planet_data
+                                    .atmosphere_color
+                                    .unwrap_or(Color::from(atmos_col)),
+                            ),
+                            atmosphere_density: planet_data
+                                .atmosphere_density
+                                .unwrap_or(atmos_density),
+                            crater_map: noise_textures.crater_map.clone(),
+                            ridge_map: noise_textures.ridge_map.clone(),
+                            sediment_map: noise_textures.sediment_map.clone(),
+                            atlas_offset: Vec2::ZERO,
+                            atlas_scale: 1.0,
+                            use_atlas: 0,
+                            atlas_texture: atlas.atlas_handle.clone(),
+                        }),
+                    ));
+                }
+
+                planet_entity.with_children(|planet| {
+                    planet.spawn((
+                        Text2d::new(planet_data.name.clone()),
+                        TextFont {
+                            font_size: 80.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                        TextLayout::new_with_justify(JustifyText::Center),
+                        Transform::from_xyz(0.0, planet_data.size * 3.0, 0.0)
+                            .with_scale(Vec3::splat(1.0)),
+                        SystemLabel,
+                    ));
+                });
+            }
+        });
+    } else if !is_sun {
+        // Randomized Planets (Only if not the forced Sun scenario without data)
+        commands.entity(system_root).with_children(|root| {
+            let mut hasher = DefaultHasher::new();
+            cell.hash(&mut hasher);
+            let cell_seed = hasher.finish();
+            let mut rng = StdRng::seed_from_u64(cell_seed);
+
+            let num_planets = rng.gen_range(1..=4);
+            for _i in 0..num_planets {
+                let dist = rng.gen_range(5000.0..50000.0) + data.size;
+                let angle = rng.gen_range(0.0..std::f32::consts::TAU);
+                let planet_size = rng.gen_range(5.0..15.0);
+
+                let planet_seed = dist * 0.123 + angle;
+                let p_type = PlanetType::from_seed(planet_seed);
+                let (col1, col2) = p_type.get_palette();
+
+                let x = dist * angle.cos();
+                let z = dist * angle.sin();
+
+                let mut planet_entity = root.spawn((
+                    Mesh3d(common_meshes.unit_sphere_low.clone()),
+                    Mass(10_000.0),
+                    Radius(planet_size),
+                    Planet,
+                    crate::universe::Orbit {
+                        radius: dist,
+                        speed: rng.gen_range(0.0005..0.002) * (100.0 / dist), // Ultra slow majestic orbits (reduced again)
+                        angle,
+                    },
+                    PlanetDetails(p_type),
+                    Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
+                ));
+
+                if render_config.mode == RenderMode::Baked {
+                    let p_type_clone = p_type.clone();
+                    let thread_pool = AsyncComputeTaskPool::get();
+                    let task = thread_pool
+                        .spawn(async move { generate_planet_pixels(&p_type_clone, planet_seed) });
+                    planet_entity.insert((
+                        MeshMaterial3d(std_materials.add(StandardMaterial {
+                            base_color: Color::WHITE,
+                            ..default()
+                        })),
+                        TextureBakeTask(task),
+                    ));
+                } else {
+                    let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
+                    planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
+                        base_color: col1,
+                        second_color: col2,
+                        seed: planet_seed,
+                        atmosphere_color: atmos_col,
+                        atmosphere_density: atmos_density,
                         crater_map: noise_textures.crater_map.clone(),
                         ridge_map: noise_textures.ridge_map.clone(),
                         sediment_map: noise_textures.sediment_map.clone(),
@@ -718,110 +804,31 @@ fn spawn_star_with_data(
                         atlas_scale: 1.0,
                         use_atlas: 0,
                         atlas_texture: atlas.atlas_handle.clone(),
-                    }),
-                ));
+                    })));
+                }
+
+                planet_entity.with_children(|planet| {
+                    let p_name = if is_custom {
+                        format!("{} (Planet)", planet_base_name)
+                    } else {
+                        format!("P {},{},{}", cell.x, cell.y, cell.z)
+                    };
+
+                    planet.spawn((
+                        Text2d::new(p_name),
+                        TextFont {
+                            font_size: 80.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.8, 0.8, 1.0)),
+                        TextLayout::new_with_justify(JustifyText::Center),
+                        Transform::from_xyz(0.0, planet_size * 3.0, 0.0)
+                            .with_scale(Vec3::splat(1.0)),
+                        SystemLabel,
+                    ));
+                });
             }
-
-            planet_entity.with_children(|planet| {
-                planet.spawn((
-                    Text2d::new(planet_data.name.clone()),
-                    TextFont {
-                        font_size: 80.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.8, 0.8, 1.0)),
-                    TextLayout::new_with_justify(JustifyText::Center),
-                    Transform::from_xyz(0.0, planet_data.size * 3.0, 0.0)
-                        .with_scale(Vec3::splat(1.0)),
-                    SystemLabel,
-                ));
-            });
-        }
-    } else if !is_sun {
-        // Randomized Planets (Only if not the forced Sun scenario without data)
-        let mut hasher = DefaultHasher::new();
-        cell.hash(&mut hasher);
-        let cell_seed = hasher.finish();
-        let mut rng = StdRng::seed_from_u64(cell_seed);
-
-        let num_planets = rng.gen_range(1..=4);
-        for _i in 0..num_planets {
-            let dist = rng.gen_range(5000.0..50000.0) + data.size;
-            let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let planet_size = rng.gen_range(5.0..15.0);
-
-            let planet_seed = dist * 0.123 + angle;
-            let p_type = PlanetType::from_seed(planet_seed);
-            let (col1, col2) = p_type.get_palette();
-
-            let x = dist * angle.cos();
-            let z = dist * angle.sin();
-
-            let mut planet_entity = commands.spawn((
-                Mesh3d(common_meshes.unit_sphere_low.clone()),
-                Mass(10_000.0),
-                Radius(planet_size),
-                Planet,
-                crate::universe::Orbit {
-                    radius: dist,
-                    speed: rng.gen_range(0.1..0.5) * (500.0 / dist), // Slower orbits
-                    angle,
-                },
-                PlanetDetails(p_type),
-                Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
-            ));
-            spawned_entities.push(planet_entity.id());
-
-            if render_config.mode == RenderMode::Baked {
-                let p_type_clone = p_type.clone();
-                let thread_pool = AsyncComputeTaskPool::get();
-                let task = thread_pool
-                    .spawn(async move { generate_planet_pixels(&p_type_clone, planet_seed) });
-                planet_entity.insert((
-                    MeshMaterial3d(std_materials.add(StandardMaterial {
-                        base_color: Color::WHITE,
-                        ..default()
-                    })),
-                    TextureBakeTask(task),
-                ));
-            } else {
-                let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
-                planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
-                    base_color: col1,
-                    second_color: col2,
-                    seed: planet_seed,
-                    atmosphere_color: atmos_col,
-                    atmosphere_density: atmos_density,
-                    crater_map: noise_textures.crater_map.clone(),
-                    ridge_map: noise_textures.ridge_map.clone(),
-                    sediment_map: noise_textures.sediment_map.clone(),
-                    atlas_offset: Vec2::ZERO,
-                    atlas_scale: 1.0,
-                    use_atlas: 0,
-                    atlas_texture: atlas.atlas_handle.clone(),
-                })));
-            }
-
-            planet_entity.with_children(|planet| {
-                let p_name = if is_custom {
-                    format!("{} (Planet)", planet_base_name)
-                } else {
-                    format!("P {},{},{}", cell.x, cell.y, cell.z)
-                };
-
-                planet.spawn((
-                    Text2d::new(p_name),
-                    TextFont {
-                        font_size: 80.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.8, 0.8, 1.0)),
-                    TextLayout::new_with_justify(JustifyText::Center),
-                    Transform::from_xyz(0.0, planet_size * 3.0, 0.0).with_scale(Vec3::splat(1.0)),
-                    SystemLabel,
-                ));
-            });
-        }
+        });
     }
     spawned_entities
 }

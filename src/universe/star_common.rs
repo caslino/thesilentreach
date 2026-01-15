@@ -55,7 +55,7 @@ pub fn get_star_data(
     let rnd1 = rand_f32(final_seed);
 
     let is_origin = x == 0 && y == 0 && z == 0;
-    let threshold = if is_origin { 1.0 } else { 0.001 };
+    let threshold = if is_origin { 1.0 } else { 0.0002 };
 
     if rnd1 > threshold {
         return None;
