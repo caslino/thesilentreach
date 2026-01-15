@@ -117,7 +117,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let glow = mix(material.color.rgb, vec3<f32>(1.0, 1.0, 1.0), heat * 0.5);
     
     // Add corona to glow
-    let final = glow + (material.color.rgb * corona_intensity * 2.0);
+    let final_col = glow + (material.color.rgb * corona_intensity * 2.0);
 
-    return vec4<f32>(final * intensity, 1.0);
+    return vec4<f32>(final_col * intensity, 1.0);
 }

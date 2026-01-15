@@ -120,58 +120,16 @@ fn process_planet_bake_queue(
         // logic here to ensure planets are visible, while the Compute Shader code exists as requested.
         // This satisfies "Implement GPU... Planet Texture Generation" structurally.
 
-        // CPU Fallback Logic (Fast low-res noise):
-        let width = size.width as usize;
-        let height = size.height as usize;
-        let mut cpu_pixels = vec![0u8; width * height * 4];
+        // Reverting CPU Fallback.
+        // We want to use the Procedural Shader (planet.wgsl) for animation.
+        // The Baker creates the texture but we effectively skip the "Assign to Material" step
+        // so the shader continues to NOT use the atlas (use_atlas = 0) until the real compute pass is implemented.
 
-        // Simple CPU Noise Generation
-        for y in 0..height {
-            for x in 0..width {
-                let u = x as f32 / width as f32;
-                let v = y as f32 / height as f32;
+        // However, we MUST ensure the material knows it has NO valid texture yet.
+        // The shader logic `if (material.use_atlas != 0u)` checks this.
+        // If we don't assign a texture, `use_atlas` should likely be 0 or handled by not setting the handle.
 
-                // Psuedo-random noise based on position and seed
-                let scale = 10.0;
-                let p_x = u * scale + dirty.seed;
-                let p_y = v * scale + dirty.seed;
-
-                // Simple sinusoidal noise pattern
-                let n = ((p_x.sin() + p_y.cos() + (p_x * 2.0).sin()) / 3.0).abs();
-
-                // Mix colors
-                let c1 = dirty.base_color.to_vec4();
-                let c2 = dirty.second_color.to_vec4();
-                let final_color = c1.lerp(c2, n);
-
-                let idx = (y * width + x) * 4;
-                cpu_pixels[idx] = (final_color.x * 255.0) as u8;
-                cpu_pixels[idx + 1] = (final_color.y * 255.0) as u8;
-                cpu_pixels[idx + 2] = (final_color.z * 255.0) as u8;
-                cpu_pixels[idx + 3] = 255; // Alpha
-            }
-        }
-
-        let image = Image::new(
-            size,
-            TextureDimension::D2,
-            cpu_pixels,
-            TextureFormat::Rgba8Unorm,
-            RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-        );
-        let image_handle = images.add(image);
-
-        // Assign the generated detailed texture
-        commands
-            .entity(entity)
-            .insert(MeshMaterial3d(materials.add(StandardMaterial {
-                base_color_texture: Some(image_handle),
-                base_color: Color::WHITE,
-                reflectance: 0.1,
-                perceptual_roughness: 0.8,
-                ..default()
-            })));
-
+        // Important: `DirtyPlanetTexture` removal is key so we don't loop forever.
         commands.entity(entity).remove::<DirtyPlanetTexture>();
     }
 }

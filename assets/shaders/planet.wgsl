@@ -1,6 +1,13 @@
 #import bevy_pbr::mesh_view_bindings as mesh_view_bindings
 #import bevy_pbr::mesh_functions as mesh_functions
 
+struct Globals {
+    // We can access Bevy's time global via standard bindings usually,
+    // but mesh_view_bindings provides `globals` struct with `time`.
+    // No need to redeclare if we use that.
+    _pad: f32,
+}
+
 struct PlanetMaterial {
     base_color: vec4<f32>,
     second_color: vec4<f32>,
@@ -117,7 +124,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         
         // 1. Zonal Flow (Banding) with Turbulence
         
-        let time = 0.0;
+        // 1. Zonal Flow (Banding) with Turbulence
+        let time = mesh_view_bindings::globals.time;
         let shift = vec2<f32>(cos(material.seed), sin(material.seed));
 
         // Layer 1: Low frequency band distortion
