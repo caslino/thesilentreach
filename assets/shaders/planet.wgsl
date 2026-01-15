@@ -247,15 +247,19 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let density = material.atmosphere_density;
 
     // 1. Horizon Glow (Additive)
-    let horizon_glow = atmos_color * rim * density * 2.0;
+    // Reduce intensity to prevent whiteout
+    let horizon_glow = atmos_color * rim * density * 0.8; 
     
     // 2. Day Side Haze (Mix)
     // Haze is stronger at grazing angles but also present on face
     let haze_factor = (rim_strength * 0.5 + 0.2) * density;
-    color = mix(color, atmos_color, haze_factor * 0.5);
+    color = mix(color, atmos_color, haze_factor * 0.4);
 
     // Add Horizon Glow
     color += horizon_glow;
+    
+    // Tone mapping helper: simple Reinhard-ish to keep things in range
+    // color = color / (color + vec3<f32>(0.5)); // Optional if still too bright
 
     return vec4<f32>(color, 1.0);
 }

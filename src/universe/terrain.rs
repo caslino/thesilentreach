@@ -268,9 +268,12 @@ fn generate_patch_mesh(face: CubeFace, start_uv: Vec2, size_uv: f32, radius: f32
             // Cube to Sphere
             let cube_point = get_cube_point(face, uv_face);
             let sphere_dir = cube_point.normalize();
-            let pos = sphere_dir * radius;
 
-            // TODO: Height Noise here!
+            // Height Noise - displace vertices to create mountains/valleys
+            let noise_val = fbm_terrain(sphere_dir * 8.0);
+            let mountain_scale = radius * 0.03; // Max height is 3% of radius
+            let displacement = noise_val * mountain_scale;
+            let pos = sphere_dir * (radius + displacement);
 
             positions.push(pos.to_array());
             normals.push(sphere_dir.to_array());
@@ -367,4 +370,21 @@ fn spawn_terrain_patches(
             }
         }
     }
+}
+
+/// FBM-style terrain noise using 3 octaves of sine waves
+/// Input is a 3D sphere direction vector, output is -1.0 to 1.0 range
+fn fbm_terrain(p: Vec3) -> f32 {
+    let mut val = 0.0;
+    let mut amp = 1.0;
+    let mut freq = 1.0;
+
+    for _ in 0..3 {
+        // Use sine waves to approximate 3D noise - cheap but effective
+        val += (p.x * freq).sin() * (p.y * freq).cos() * (p.z * freq).sin() * amp;
+        freq *= 2.0;
+        amp *= 0.5;
+    }
+
+    val
 }
