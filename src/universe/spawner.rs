@@ -36,7 +36,6 @@ impl Plugin for StarSystemSpawnerPlugin {
                     manage_galaxy_sectors,
                     handle_generation_tasks,
                     // Ensure texture tasks are handled before potential despawns to avoid command races
-                    handle_texture_tasks.before(despawn_distant_systems),
                     sync_universe_view,
                     update_lod_scaling,
                     despawn_distant_systems,
@@ -224,75 +223,7 @@ fn handle_generation_tasks(
     }
 }
 
-fn handle_texture_tasks(
-    mut commands: Commands,
-    mut q_tasks: Query<(Entity, &mut TextureBakeTask, &PlanetDetails, &Radius)>,
-    mut images: ResMut<Assets<Image>>,
-    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
-    mut atlas: ResMut<PlanetTextureAtlas>,
-    noise_textures: Res<NoiseTextures>,
-) {
-    for (entity, mut task, _p_details, _radius) in q_tasks.iter_mut() {
-        if let Some(pixels) = future::block_on(future::poll_once(&mut task.0)) {
-            // Task Complete: Allocate Slot
-            let slot_index = if let Some(idx) = atlas.available_slots.pop() {
-                idx
-            } else {
-                warn!("Planet Texture Atlas Full! Fallback not implemented yet.");
-                continue;
-            };
-
-            atlas.slot_map.insert(entity, slot_index);
-
-            let grid_size = atlas.grid_size;
-            let slot_size = atlas.slot_size;
-            let atlas_size = atlas.atlas_size;
-
-            if let Some(atlas_image) = images.get_mut(&atlas.atlas_handle) {
-                bake_planet_texture(
-                    atlas_image,
-                    &pixels,
-                    slot_index,
-                    grid_size,
-                    slot_size,
-                    atlas_size,
-                );
-            }
-
-            // Calculate UV Offset/Scale
-            let uv_scale = 1.0 / grid_size as f32;
-            let row = (slot_index as u32 / grid_size) as f32;
-            let col = (slot_index as u32 % grid_size) as f32;
-
-            let offset = Vec2::new(col * uv_scale, row * uv_scale);
-
-            // Create PlanetMaterial using Atlas
-            let material = planet_materials.add(PlanetMaterial {
-                base_color: LinearRgba::WHITE, // Not used heavily if using atlas? Or tinted?
-                second_color: LinearRgba::BLACK,
-                seed: 0.0, // Irrelevant for atlas
-                atmosphere_color: LinearRgba::new(0.5, 0.7, 1.0, 1.0), // Keep atmosphere?
-                atmosphere_density: 0.2, // Default
-                atlas_offset: offset,
-                atlas_scale: uv_scale,
-                use_atlas: 1,
-                planet_class: 0,
-                atlas_texture: atlas.atlas_handle.clone(),
-                crater_map: noise_textures.crater_map.clone(),
-                ridge_map: noise_textures.ridge_map.clone(),
-                sediment_map: noise_textures.sediment_map.clone(),
-            });
-
-            // Safely apply changes only if entity still exists
-            commands.queue(move |world: &mut World| {
-                if let Ok(mut entity_cmd) = world.get_entity_mut(entity) {
-                    entity_cmd.insert(MeshMaterial3d(material));
-                    entity_cmd.remove::<TextureBakeTask>();
-                }
-            });
-        }
-    }
-}
+// Legacy texture task handler removed.
 
 fn generate_sector_data(
     sector: SectorIndex,
@@ -706,17 +637,20 @@ fn spawn_star_with_data(
                 ));
 
                 if render_config.mode == RenderMode::Baked {
-                    let p_type_clone = p_type.clone();
-                    let thread_pool = AsyncComputeTaskPool::get();
-                    let task = thread_pool
-                        .spawn(async move { generate_planet_pixels(&p_type_clone, dist) });
-                    planet_entity.insert((
-                        MeshMaterial3d(std_materials.add(StandardMaterial {
-                            base_color: planet_data.color,
-                            ..default()
-                        })),
-                        TextureBakeTask(task),
-                    ));
+                    planet_entity.insert(crate::universe::planet_baker::DirtyPlanetTexture {
+                        seed: dist, // Reuse distance as seed for consistency
+                        base_color: LinearRgba::from(planet_data.color),
+                        second_color: LinearRgba::from(
+                            planet_data.second_color.unwrap_or(Color::BLACK),
+                        ),
+                        planet_type: if matches!(p_type, PlanetType::GasGiant) {
+                            1
+                        } else if matches!(p_type, PlanetType::Magma) {
+                            3
+                        } else {
+                            0
+                        },
+                    });
                 } else {
                     planet_entity.insert(MeshMaterial3d(
                         planet_materials.add(PlanetMaterial {
@@ -800,20 +734,28 @@ fn spawn_star_with_data(
                     Transform::from_xyz(x, 0.0, z).with_scale(Vec3::splat(planet_size)),
                 ));
 
+                // Use GPU Baker for all planets unless specifically overridden
+                // Note: RenderMode::Baked check is now implicit default.
+
+                let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
+                let (col1, col2) = p_type.get_palette(); // Standard palette
+
                 if render_config.mode == RenderMode::Baked {
-                    let p_type_clone = p_type.clone();
-                    let thread_pool = AsyncComputeTaskPool::get();
-                    let task = thread_pool
-                        .spawn(async move { generate_planet_pixels(&p_type_clone, planet_seed) });
-                    planet_entity.insert((
-                        MeshMaterial3d(std_materials.add(StandardMaterial {
-                            base_color: Color::WHITE,
-                            ..default()
-                        })),
-                        TextureBakeTask(task),
-                    ));
+                    planet_entity.insert(crate::universe::planet_baker::DirtyPlanetTexture {
+                        seed: planet_seed,
+                        base_color: col1,
+                        second_color: col2,
+                        planet_type: if matches!(p_type, PlanetType::GasGiant) {
+                            1
+                        } else if matches!(p_type, PlanetType::Magma) {
+                            3
+                        } else {
+                            0
+                        },
+                    });
+                    // Note: We don't add MeshMaterial3d here, the Baker does it!
                 } else {
-                    let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
+                    // Legacy Procedural Material (Shader per pixel)
                     planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
                         base_color: col1,
                         second_color: col2,
@@ -862,107 +804,6 @@ fn spawn_star_with_data(
 }
 
 // 1. Off-thread pixel generation
-fn generate_planet_pixels(p_type: &PlanetType, seed: f32) -> Vec<u8> {
-    let size = 128; // Small texture for performance/style
-    let mut pixels = Vec::with_capacity(size * size * 4);
-    let (c1, c2) = p_type.get_palette(); // LinearRgba
-
-    // Convert LinearRgba to Vec3 for mixing
-    let col1 = Vec3::new(c1.red, c1.green, c1.blue);
-    let col2 = Vec3::new(c2.red, c2.green, c2.blue);
-
-    for y in 0..size {
-        for x in 0..size {
-            // Spherical Mapping approximation (just noise on 2D plane for now, usually needs equirectangular)
-            // For simple "Planet Style", standard noise is okay if UVs are standard sphere.
-            // Sphere mesh UVs are equirectangular.
-
-            let u = x as f32 / size as f32;
-            let v = y as f32 / size as f32;
-
-            // Noise scale
-            let scale = 10.0;
-            let n = simple_noise(u * scale + seed, v * scale + seed);
-
-            // Mix colors
-            let final_col = col1.lerp(col2, n);
-
-            pixels.extend_from_slice(&[
-                (final_col.x * 255.0) as u8,
-                (final_col.y * 255.0) as u8,
-                (final_col.z * 255.0) as u8,
-                255,
-            ]);
-        }
-    }
-    pixels
-}
-
-// 2. Main-thread atlas baking
-fn bake_planet_texture(
-    atlas: &mut Image,
-    pixels: &[u8],
-    slot_index: usize,
-    grid_size: u32,
-    slot_size: u32,
-    atlas_size: u32,
-) {
-    let row = slot_index as u32 / grid_size;
-    let col = slot_index as u32 % grid_size;
-
-    let start_x = col * slot_size;
-    let start_y = row * slot_size;
-
-    // Copy pixels row by row
-    let bytes_per_pixel = 4;
-    let atlas_stride = (atlas_size * bytes_per_pixel) as usize;
-    let slot_stride = (slot_size * bytes_per_pixel) as usize;
-
-    for y in 0..slot_size {
-        let atlas_y = start_y + y;
-        let atlas_offset =
-            (atlas_y as usize * atlas_stride) + (start_x as usize * bytes_per_pixel as usize);
-
-        let slot_offset = y as usize * slot_stride;
-
-        if atlas_offset + slot_stride <= atlas.data.len()
-            && slot_offset + slot_stride <= pixels.len()
-        {
-            atlas.data[atlas_offset..atlas_offset + slot_stride]
-                .copy_from_slice(&pixels[slot_offset..slot_offset + slot_stride]);
-        }
-    }
-}
-
-// Re-implement simple noise locally to avoid pub sharing issues
-fn simple_noise(x: f32, y: f32) -> f32 {
-    let i = x.floor();
-    let j = y.floor();
-    let f_x = x.fract();
-    let f_y = y.fract();
-
-    // Hash
-    let rand = |d_x: f32, d_y: f32| -> f32 {
-        ((i + d_x) * 12.9898 + (j + d_y) * 78.233)
-            .sin()
-            .fract()
-            .abs()
-    };
-
-    let a = rand(0.0, 0.0);
-    let b = rand(1.0, 0.0);
-    let c = rand(0.0, 1.0);
-    let d = rand(1.0, 1.0);
-
-    // Mix
-    let u_x = f_x * f_x * (3.0 - 2.0 * f_x);
-    let u_y = f_y * f_y * (3.0 - 2.0 * f_y);
-
-    let h1 = a + (b - a) * u_x;
-    let h2 = c + (d - c) * u_x;
-
-    h1 + (h2 - h1) * u_y
-}
 
 fn rotate_planets(
     mut q_planets: Query<(&mut Transform, &mut crate::universe::Orbit)>,

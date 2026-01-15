@@ -7,6 +7,7 @@ pub struct UniversePlugin;
 pub mod gpu_star_renderer;
 pub mod materials;
 pub mod physics;
+pub mod planet_baker;
 pub mod pulsar;
 pub mod sky;
 pub mod spawner;
@@ -249,6 +250,7 @@ impl Plugin for UniversePlugin {
             .add_plugins(pulsar::PulsarPlugin)
             .add_plugins(MaterialPlugin::<StarMaterial>::default())
             .add_plugins(MaterialPlugin::<PlanetMaterial>::default())
+            .add_plugins(planet_baker::PlanetBakerPlugin)
             .add_event::<StarClicked>()
             .add_event::<SystemSavedEvent>()
             // Global Ambient Light so things aren't pitch black
