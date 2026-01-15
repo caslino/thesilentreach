@@ -59,8 +59,8 @@ impl FromWorld for CommonMeshes {
     fn from_world(world: &mut World) -> Self {
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         CommonMeshes {
-            unit_sphere_low: meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap()),
-            unit_sphere_high: meshes.add(Sphere::new(1.0).mesh().ico(4).unwrap()),
+            unit_sphere_low: meshes.add(Sphere::new(1.0).mesh().ico(5).unwrap()),
+            unit_sphere_high: meshes.add(Sphere::new(1.0).mesh().ico(7).unwrap()),
         }
     }
 }
@@ -276,6 +276,7 @@ fn handle_texture_tasks(
                 atlas_offset: offset,
                 atlas_scale: uv_scale,
                 use_atlas: 1,
+                planet_class: 0,
                 atlas_texture: atlas.atlas_handle.clone(),
                 crater_map: noise_textures.crater_map.clone(),
                 ridge_map: noise_textures.ridge_map.clone(),
@@ -721,6 +722,11 @@ fn spawn_star_with_data(
                             atlas_offset: Vec2::ZERO,
                             atlas_scale: 1.0,
                             use_atlas: 0,
+                            planet_class: if matches!(p_type, PlanetType::GasGiant) {
+                                1
+                            } else {
+                                0
+                            },
                             atlas_texture: atlas.atlas_handle.clone(),
                         }),
                     ));
@@ -803,6 +809,11 @@ fn spawn_star_with_data(
                         atlas_offset: Vec2::ZERO,
                         atlas_scale: 1.0,
                         use_atlas: 0,
+                        planet_class: if matches!(p_type, PlanetType::GasGiant) {
+                            1
+                        } else {
+                            0
+                        },
                         atlas_texture: atlas.atlas_handle.clone(),
                     })));
                 }

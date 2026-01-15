@@ -10,6 +10,7 @@ struct PlanetMaterial {
     atlas_offset: vec2<f32>,
     atlas_scale: f32,
     use_atlas: u32,
+    planet_class: u32,
 };
 
 @group(2) @binding(0) var<uniform> material: PlanetMaterial;
@@ -100,97 +101,146 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color: vec3<f32>;
 
     if (material.use_atlas != 0u) {
-        // --- ATLAS SAMPLING ---
         let atlas_uv = in.uv * material.atlas_scale + material.atlas_offset;
         color = textureSample(atlas_texture, atlas_sampler, atlas_uv).rgb;
+    } else if (material.planet_class == 1u) {
+        // --- GAS GIANT GENERATION ---
+
+        let uv = in.uv;
+        
+        // 1. Zonal Flow (Banding) with Turbulence
+        
+        let time = 0.0;
+        let shift = vec2<f32>(cos(material.seed), sin(material.seed));
+
+        // Layer 1: Low frequency band distortion
+        let noise_low = textureSample(crater_map, crater_sampler, fract(uv * 3.0 + shift)).r;
+        
+        // Layer 2: High frequency turbulence
+        let noise_high = textureSample(crater_map, crater_sampler, fract(uv * 12.0 - shift)).r;
+        
+        // Combine for detailed band distortion
+        let dist_y = uv.y * 18.0 + noise_low * 0.4 + noise_high * 0.1;
+        
+        // Sharpen the bands slightly for distinct zones
+        let band_noise = sin(dist_y);
+        let band_detail = sin(dist_y * 3.0 + noise_high * 5.0) * 0.2; // Sub-bands
+        
+        let band_factor = (band_noise + band_detail) * 0.5 + 0.5;
+        let band_factor_clamped = smoothstep(0.2, 0.8, band_factor); // Contrast
+        
+        // Mix Colors
+        color = mix(material.base_color.rgb, material.second_color.rgb, band_factor_clamped);
+        
+        // Add subtle white clouds/turbulence on top
+        let cloud_noise = textureSample(crater_map, crater_sampler, fract(uv * 8.0 + vec2<f32>(time*0.01, 0.0))).r;
+        if (cloud_noise > 0.7) {
+            color = mix(color, vec3<f32>(1.0, 1.0, 0.9), (cloud_noise - 0.7) * 0.5);
+        }
+        
+        // 2. The Great Red Spot (Storms)
+        // Check distance to storm center(s)
+        // Use seed to position storm? Or fixed for Jupiter specifically?
+        // Prompt asks for: uv(0.4, 0.6)
+        
+        let storm_center = vec2<f32>(0.4, 0.6);
+        let storm_dist = distance(uv, storm_center);
+        
+        // Perturb storm edge
+        let storm_radius = 0.08 + noise_low * 0.01;
+        
+        if (storm_dist < storm_radius) {
+            let storm_alpha = smoothstep(storm_radius, storm_radius - 0.02, storm_dist);
+            // Deep Red Storm Color
+            let storm_color = vec3<f32>(0.6, 0.1, 0.05); 
+            color = mix(color, storm_color, storm_alpha);
+        }
+
     } else {
-        // --- PROCEDURAL GENERATION ---
+        // --- ORGANIC PROCEDURAL GENERATION (Terrestrial/Others) ---
+        
+        let scale = 4.0;
+        let uv = in.uv * scale;
+        
+        // 1. Domain Warping (Perturb UVs with crater map for jaggedness)
+        // This is key for "Organic Coastlines"
+        let warp_scale = 0.02;
+        let warp = textureSample(crater_map, crater_sampler, uv).r;
+        let perturbed_uv = uv + vec2<f32>(warp) * warp_scale;
 
-        // 1. Terrain Noise (Hybrid)
-        let n = hybrid_sampling(in.uv, material.seed);
+        // 2. Hybrid Noise Sampling
+        // Use the seed to rotate/shift
+        let angle = material.seed * 123.45;
+        let shift = vec2<f32>(cos(material.seed), sin(material.seed));
+        let rot_uv = rotate_uv(perturbed_uv + shift, angle);
+        
+        // Sample maps
+        let raw_n = textureSample(crater_map, crater_sampler, fract(rot_uv)).r;
+        let ridge = textureSample(ridge_map, ridge_sampler, fract(rot_uv)).r;
+        let sediment = textureSample(sediment_map, sediment_sampler, fract(rot_uv * 2.0)).r;
 
-        // 2. Mix Land/Sea
-        // Threshold usually around 0.5 for water
-        let water_level = 0.52;
-        let grass_level = 0.58;
+        // Combine for terrain height
+        let n = mix(raw_n, raw_n + ridge * 0.5, 0.5);
 
-        // Colors
+        // 3. Biome Coloring
+        // Use smoothstep for coastlines instead of if/else
+        let water_level = 0.55;
+        let shore_width = 0.01; // Smooth transition
+
         let deep_ocean = vec3<f32>(0.0, 0.05, 0.2);
         let shallow_ocean = vec3<f32>(0.0, 0.4, 0.7);
         let beach = vec3<f32>(0.8, 0.7, 0.5);
-        let grass = material.base_color.rgb;
-        let forest = material.second_color.rgb;
-        let mountain = vec3<f32>(0.5, 0.5, 0.5);
-        let snow = vec3<f32>(1.0, 1.0, 1.0);
+        let land_base = material.base_color.rgb;
+        let land_forest = material.second_color.rgb;
+        let snow = vec3<f32>(1.0);
 
-        // Sediment sample for color variation
-        let sediment_val = textureSample(sediment_map, sediment_sampler, fract(in.uv * 2.0 + vec2<f32>(material.seed))).r;
+        // Ocean Factor (1.0 = Land, 0.0 = Water)
+        let land_factor = smoothstep(water_level - shore_width, water_level + shore_width, n);
 
-        // Ocean Gradient
-        color = mix(deep_ocean, shallow_ocean, n / water_level);
+        // Water Color
+        let water_col = mix(deep_ocean, shallow_ocean, n / water_level);
+        
+        // Land Color 
+        var land_col = mix(beach, land_base, smoothstep(water_level, water_level + 0.05, n));
+        land_col = mix(land_col, land_forest, smoothstep(0.65, 0.8, n)); // Forest
+        land_col = mix(land_col, snow, smoothstep(0.85, 0.95, n)); // Peaks
 
-        // Add sediment variegation to ocean
-        color = mix(color, color * 1.2, sediment_val * 0.5);
-
-        // Land Gradient
-        if n > water_level {
-            if n < grass_level {
-                // Beach
-                color = beach;
-            } else if n < 0.75 {
-                // Grass / Forest
-                let mix_factor = smoothstep(grass_level, 0.75, n);
-                color = mix(grass, forest, mix_factor);
-
-                // Add sediment variegation
-                 color = mix(color, color * 0.9, sediment_val);
-
-            } else if n < 0.85 {
-                // Mountain
-                color = mountain;
-            } else {
-                // Snow
-                color = snow;
-            }
-        }
+        // Mix Land and Water
+        color = mix(water_col, land_col, land_factor);
+        
+        // Apply sediment detail
+        color = mix(color, color * 0.8, sediment * 0.3);
     }
     
-    // 3. Lighting (Simple Diffuse + Hemisphere)
+    // --- LIGHTING & ATMOSPHERE ---
+
     let view_dir = normalize(mesh_view_bindings::view.world_position.xyz - in.world_position.xyz);
     let normal = normalize(in.world_normal);
-    
-    // Fake "Sun" direction (Assume usually (1,1,1) for generic look)
-    let light_dir = normalize(vec3<f32>(1.0, 0.5, 1.0));
-    let diffuse = max(dot(normal, light_dir), 0.1);
-    
-    // Apply Diffuse Lighting first
-    color = color * diffuse;
+    let light_dir = normalize(vec3<f32>(1.0, 0.5, 1.0)); // Fake Sun
 
-    // 4. Atmospheric Scattering (Rim / Haze)
-    // Calculate Fresnel effect
+    // Diffuse
+    let NdotL = max(dot(normal, light_dir), 0.0);
+    let diffuse = NdotL + 0.1; // Ambient
+    color *= diffuse;
+
+    // Atmospheric Scattering (Rim Light)
     let NdotV = max(dot(normal, view_dir), 0.0);
-    
-    // "Rim" creates the glowing edge
-    let rim_strength = 1.0 - NdotV; 
-    let rim = pow(rim_strength, 4.0);
-    
-    // "Scatter" mimics the atmosphere getting thicker at glancing angles, but also visible on day side.
-    // We mix it based on density
-    let atmosphere_color = material.atmosphere_color.rgb;
+    let rim_strength = 1.0 - NdotV;
+    let rim = pow(rim_strength, 4.0); // Sharp rim
+
+    let atmos_color = material.atmosphere_color.rgb;
     let density = material.atmosphere_density;
 
-    // Simple scattering approximation:
-    // Mix surface color with atmosphere color based on Fresnel and Density.
-    // Boosted at the rim (horizon).
+    // 1. Horizon Glow (Additive)
+    let horizon_glow = atmos_color * rim * density * 2.0;
     
-    let scatter_factor = pow(rim_strength, 2.5) * density * 2.0;
-    
-    // Additive blend for light scattering (makes it look glowing/hazy)
-    color = color + (atmosphere_color * scatter_factor);
-    
-    // "Daylight" Scattering: slightly tint the whole lit side
-    let day_scatter = atmosphere_color * 0.2 * density * diffuse;
-    color = color + day_scatter;
+    // 2. Day Side Haze (Mix)
+    // Haze is stronger at grazing angles but also present on face
+    let haze_factor = (rim_strength * 0.5 + 0.2) * density;
+    color = mix(color, atmos_color, haze_factor * 0.5);
+
+    // Add Horizon Glow
+    color += horizon_glow;
 
     return vec4<f32>(color, 1.0);
 }

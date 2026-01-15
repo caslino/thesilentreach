@@ -104,6 +104,18 @@ impl Database {
         })
     }
     pub fn seed_predefined_system(&self, scenario: &str) -> Result<()> {
+        if scenario == "jupiter" {
+            let sector = SectorIndex { x: 0, y: 0, z: 0 };
+            if let Some(_) = self.get_sector_data(sector)? {
+                info!("PERSISTENCE: Sector (0,0,0) already seeded. Skipping Jupiter generation.");
+                return Ok(());
+            }
+            info!("PERSISTENCE: Seeding 'Jupiter System' to Sector (0,0,0)...");
+            let systems = crate::universe::get_jupiter_system_data();
+            self.save_sector_data(sector, &systems)?;
+            return Ok(());
+        }
+
         if scenario != "our_system" {
             return Ok(());
         }

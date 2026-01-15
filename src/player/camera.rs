@@ -127,7 +127,7 @@ fn setup_camera(
                     Camera3d::default(),
                     HeadCamera,
                     bevy::core_pipeline::bloom::Bloom {
-                        intensity: 0.8, // Increased glow (was Natural ~0.3-0.5 equiv)
+                        intensity: 0.3, // "Natural" aesthetic
                         ..default()
                     },
                     bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface, // Better exposure

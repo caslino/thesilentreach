@@ -14,7 +14,7 @@ impl Material for StarMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/star.wgsl".into()
     }
-    
+
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Opaque
     }
@@ -39,6 +39,8 @@ pub struct PlanetMaterial {
     pub atlas_scale: f32,
     #[uniform(0)]
     pub use_atlas: u32,
+    #[uniform(0)]
+    pub planet_class: u32,
 
     #[texture(7)]
     #[sampler(8)]
@@ -59,7 +61,7 @@ impl Material for PlanetMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/planet.wgsl".into()
     }
-    
+
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Opaque
     }

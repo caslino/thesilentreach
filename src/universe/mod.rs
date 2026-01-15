@@ -389,3 +389,228 @@ pub fn get_solar_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)> {
 
     systems
 }
+
+pub fn get_jupiter_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)> {
+    let mut systems = Vec::new();
+    let center = big_space::GridCell::new(0, 0, 0);
+
+    // 1. Jupiter (The Primary)
+    // Modeled as a PlanetType::GasGiant but we place it as the "Star" of this system logic for simplicity,
+    // OR we spawn a dummy Star (Sun far away?) and Jupiter as a planet?
+    // The prompt says: "The Primary (Jupiter): Location: GridCell(0,0,0). Visuals: Use PlanetType::GasGiant. Size 250.0"
+    // Usually (0,0,0) is a StarDetails. StarDetails has `star_type`.
+    // But we want it to look like a Gas Giant.
+    // If we use StarDetails, it renders with `StarMaterial` (emissive).
+    // The prompt implies we should see Jupiter.
+    // However, the spawner uses `StarDetails` to create the root.
+    // IF we want Jupiter to be the central object at (0,0,0) and render as a planet, we might need a hack or
+    // simply define it as a Planet in the list, and have a dummy central star (or no star?).
+    //
+    // Re-reading Prompt: "The Primary (Jupiter): Location GridCell(0,0,0)... Visuals Use PlanetType::GasGiant"
+    // And "Populate the system with the Galilean moons for scale".
+    //
+    // The `Spawner` spawns `StarDetails` at the center using `StarMaterial` (Unit Sphere High).
+    // Planets are children.
+    // If I want Jupiter to be the big thing in the middle, I might need to make it a "Planet" at distance 0?
+    //
+    // Let's create a "Star" that is invisible/small or just the Sun far away?
+    // Actually, `StarDetails` struct doesn't have `PlanetType`.
+    // It has `StarType`.
+    //
+    // PROMPT SPECIFIC INSTRUCTION: "The Primary (Jupiter): Location GridCell(0,0,0)..."
+    //
+    // If I put it in `planets` list with distance 0, it will spawn inside the star.
+    //
+    // Let's look at `StarDetails`. It has `planets: Option<Vec<DetailedPlanet>>`.
+    // I will define a "Dummy" Star at (0,0,0) that is tiny/invisible?
+    // OR I will just spawn Jupiter as a "Planet" at distance 0.
+    //
+    // Let's try spawning a Dummy Star (Sun, distant light source?) and Jupiter as the main Planet.
+    // But the prompt says "Spawn directly in front of a massive... gas giant".
+    // If I spawn at (0,0,0), I am inside it.
+    //
+    // Start with a 'Sun' (Light source) effectively acting as the Star, and Jupiter orbit it?
+    // "Jupiter Scenario" usually implies we are AT Jupiter.
+    //
+    // Let's define the System:
+    // Star: The Sun (Far away? or just central light?)
+    // Actually, the Light comes from the Star.
+    // If Jupiter is the "Primary", it shouldn't emit light like a star.
+    //
+    // I will define the Central Object as a Dummy Star (maybe "Sun (Distant)")
+    // And Jupiter as a Planet at a small distance or 0.
+    //
+    // Let's define:
+    // Star: name="Sun (Distant)", type=YellowDwarf, size=1.0 (tiny), distance=0.
+    // Planets:
+    //  - Jupiter (Dist 0 or small offset)
+    //  - Moons (Orbiting Jupiter? Our system only supports Planets orbiting Star)
+    //
+    // Ah, our system `DetailedPlanet` does not support moons of planets.
+    // The prompt says "The Galilean Moons (For Scale): Io: Distance ~1,200..."
+    //
+    // It seems the intent is to simulate the "Jupiter System" as if Jupiter is the "Star" (Gravity well)
+    // but rendered as a Gas Giant.
+    //
+    // Issue: `spawner.rs` spawns the central object as `Star` with `StarMaterial`.
+    // `StarMaterial` is unlit emissive.
+    // `PlanetMaterial` is lit.
+    //
+    // If I make Jupiter the "Star" entry, it will use Star shader (glowing). Gas Giants shouldn't glow.
+    //
+    // SOLUTION:
+    // I will make the "Star" entry invisible/dummy.
+    // I will add Jupiter as a "Planet" at Distance ~0 (or very close).
+    // I will add Moons as "Planets" at their respective distances.
+    // Effectively, the "Star" entity is just the coordinate anchor and light source (The Sun).
+    //
+    // Star: "Sun (Light Source)", Size 100, but maybe placed far away?
+    // Wait, `StarDetails` defines the generic system.
+    //
+    // Let's assume the user wants Jupiter at (0,0,0).
+    // I will create:
+    // Star: "Jupiter System Center" (Invisible/Small)
+    // Planet 1: Jupiter (Dist 0, Size 250)
+    // Planet 2: Io (Dist 1200)
+    // Planet 3: Europa (Dist 1800)
+    // Planet 4: Ganymede (Dist 2800)
+    // Planet 5: Callisto (Dist 3800)
+    //
+    // This allows Moons to orbit constraints (which are relative to (0,0,0)).
+    // Jupiter will be at (0,0,0).
+    //
+    // One catch: `spawn_star_with_data` spawns a PointLight at the center.
+    // If Jupiter is there, the light will be inside it.
+    // Jupiter is not a star, so it shouldn't emit light. The light should come from the Sun.
+    //
+    // I might need to hack the "Star" to be the Sun, but effectively place Jupiter at the center?
+    // But if (0,0,0) is the Sun...
+    //
+    // Let's just follow the data structure.
+    // I will define a "Jupiter" Planet at distance 0.
+    // And the moons at their distances.
+    // The "Star" will be "Sun Intensity" but maybe I need to accept the light source is at (0,0,0)...
+    //
+    // If the light is at (0,0,0), Jupiter (at 0,0,0) will be lit from inside?
+    // And moons will be lit from the center (Jupiter).
+    //
+    // Actually, in the real Jupiter system, the light comes from the Sun (far away).
+    // But in this "Jupiter Scenario", maybe we just want to see Jupiter and moons.
+    // The Prompt says: "The Primary (Jupiter): Location GridCell(0,0,0)".
+    //
+    // If I put Jupiter at 0,0,0 and the Light at 0,0,0, it will look weird (Moons lit from Jupiter).
+    //
+    // Maybe I should offset the Light?
+    // `StarDetails` has `color` and `size`. Light intensity is derived from `StarType`.
+    //
+    // I will trick it:
+    // I'll set the "Star" to be the Sun, but place it far away?
+    // No, `spawner.rs` spawns Star at `cell` (0,0,0).
+    //
+    // If I modify `spawner.rs` to support `PlanetType` for the Central Body, that would be ideal.
+    // BUT `spawner.rs` logic is "Spawn Star Sphere".
+    //
+    // Let's stick to the "Planets List" approach.
+    // I will make the Star "Dark/Invisible"?
+    // And put a "Sun" as a distant planet? No, planets don't emit light.
+    //
+    // Let's Look at `spawner.rs`:
+    // Line 165: `let light_dir = normalize(vec3<f32>(1.0, 0.5, 1.0)); // Fake Sun` in `planet.wgsl`!!!
+    //
+    // OH! logic in `planet.wgsl` Line 165 uses a **FAKE SUN DIR**.
+    // `let light_dir = normalize(vec3<f32>(1.0, 0.5, 1.0)); // Fake Sun`
+    //
+    // SO, the PointLight in `spawner.rs` does NOT affect the planets (which use `planet.wgsl`).
+    // `planet.wgsl` ignores real lights and uses a hardcoded direction!
+    //
+    // This simplifies everything! I don't need to worry about the PointLight position for the planets' shading.
+    //
+    // Valid Plan:
+    // Star: "Jupiter Gravity Well". Size: 1.0 (Tiny/Invisible). Color: Black?
+    // Planets:
+    //  - Jupiter: Dist 0. Size 250.
+    //  - Moons: Distances as requested.
+    //
+    // This works.
+
+    let mut planets = Vec::new();
+
+    // Jupiter
+    planets.push(DetailedPlanet {
+        name: "Jupiter".to_string(),
+        planet_type: PlanetType::GasGiant,
+        distance: 0.1, // Near zero to be at center
+        size: 250.0,
+        color: Color::srgb_u8(227, 220, 203), // E3DCCB
+        second_color: Some(Color::srgb_u8(200, 139, 58)), // C88B3A
+        atmosphere_color: Some(Color::srgb_u8(200, 150, 100)),
+        atmosphere_density: Some(1.0),
+        orbit_speed: 0.0,
+    });
+
+    // Io
+    planets.push(DetailedPlanet {
+        name: "Io".to_string(),
+        planet_type: PlanetType::Magma, // Volcanic
+        distance: 1200.0,
+        size: 12.0,
+        color: Color::srgb_u8(216, 211, 85), // D8D355
+        second_color: Some(Color::srgb_u8(200, 100, 0)),
+        atmosphere_color: Some(Color::srgb(0.8, 0.8, 0.2)),
+        atmosphere_density: Some(0.5),
+        orbit_speed: 0.05,
+    });
+
+    // Europa
+    planets.push(DetailedPlanet {
+        name: "Europa".to_string(),
+        planet_type: PlanetType::Ice,
+        distance: 1800.0,
+        size: 10.0,
+        color: Color::srgb_u8(240, 248, 255), // F0F8FF
+        second_color: Some(Color::srgb_u8(200, 220, 255)),
+        atmosphere_color: Some(Color::srgb(0.8, 0.9, 1.0)),
+        atmosphere_density: Some(0.2),
+        orbit_speed: 0.15,
+    });
+
+    // Ganymede
+    planets.push(DetailedPlanet {
+        name: "Ganymede".to_string(),
+        planet_type: PlanetType::Terran, // Rocky Grey -> Use Terran with Grey colors? Or Ice? Prompt says "Rocky Grey". Terran is usually Green/Blue. I'll use Ice or just override colors.
+        // Prompt says "Rocky Grey (#7C756F)".
+        // PlanetType affects Palette. But `spawn_star_with_data` uses `planet_data.color` primarily.
+        distance: 2800.0,
+        size: 18.0,
+        color: Color::srgb_u8(124, 117, 111), // 7C756F
+        second_color: Some(Color::srgb_u8(100, 90, 80)),
+        atmosphere_color: None,
+        atmosphere_density: None,
+        orbit_speed: 0.1,
+    });
+
+    // Callisto
+    planets.push(DetailedPlanet {
+        name: "Callisto".to_string(),
+        planet_type: PlanetType::Ice, // Dark Pockmarked.
+        distance: 3800.0,
+        size: 16.0,
+        color: Color::srgb_u8(75, 75, 75), // 4B4B4B
+        second_color: Some(Color::srgb_u8(50, 50, 50)),
+        atmosphere_color: None,
+        atmosphere_density: None,
+        orbit_speed: 0.3,
+    });
+
+    systems.push((
+        center,
+        StarDetails {
+            star_type: StarType::RedDwarf, // Dim star as placeholder
+            color: Color::NONE,            // Invisible? Text2d might still show.
+            size: 1.0,
+            planets: Some(planets),
+        },
+    ));
+
+    systems
+}

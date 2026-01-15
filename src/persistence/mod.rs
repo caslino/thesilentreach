@@ -73,6 +73,18 @@ fn load_player_state(
         return;
     }
 
+    // Special Scenario Spawns
+    if config.scenario == "jupiter" {
+        spawn_loc.cell = GridCell::new(0, 0, 0);
+        // Jupiter is at 0,0,0 with radius 250. Spawn at z=800 looking at it.
+        spawn_loc.local_pos = Vec3::new(0.0, 0.0, 800.0);
+        spawn_loc.velocity = Some(Vec3::ZERO);
+        spawn_loc.throttle = 0.0;
+        spawn_loc.has_spawned = true;
+        info!("PERSISTENCE: Jupiter Scenario detected. Spawning at (0,0,800).");
+        return;
+    }
+
     // 1. Check DB
     if let Ok(Some(state)) = db.get_player_state() {
         // 2. Calculate Catch-up
@@ -181,7 +193,11 @@ fn auto_save_system(
     db: Res<Database>,
     q_player: Query<(&GridCell<i64>, &Transform, &Velocity), With<ZenCamera>>,
     input: Res<VehicleInput>, // Added input resource
+    config: Res<PersistenceConfig>,
 ) {
+    if config.scenario == "jupiter" {
+        return; // Do not save state in scenarios
+    }
     *timer += time.delta_secs();
     if *timer < 5.0 {
         return;
