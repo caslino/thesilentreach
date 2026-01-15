@@ -623,7 +623,13 @@ fn spawn_star_with_data(
                 let z = dist * angle.sin();
 
                 let mut planet_entity = root.spawn((
-                    Mesh3d(common_meshes.unit_sphere_low.clone()),
+                    // Mesh3d(common_meshes.unit_sphere_low.clone()), // Removed for LOD
+                    crate::universe::terrain::PlanetTerrain::new(
+                        PlanetDetails(p_type),
+                        planet_data.size,
+                        8,   // Max Depth
+                        2.0, // Split Factor
+                    ),
                     Mass(10_000.0),
                     Radius(planet_data.size),
                     Planet,
@@ -721,7 +727,13 @@ fn spawn_star_with_data(
                 let z = dist * angle.sin();
 
                 let mut planet_entity = root.spawn((
-                    Mesh3d(common_meshes.unit_sphere_low.clone()),
+                    // Mesh3d(common_meshes.unit_sphere_low.clone()), // Removed for LOD
+                    crate::universe::terrain::PlanetTerrain::new(
+                        PlanetDetails(p_type),
+                        planet_size,
+                        8,   // Max Depth
+                        2.0, // Split Factor
+                    ),
                     Mass(10_000.0),
                     Radius(planet_size),
                     Planet,

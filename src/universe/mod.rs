@@ -6,12 +6,14 @@ pub struct UniversePlugin;
 
 pub mod gpu_star_renderer;
 pub mod materials;
+pub mod nebula;
 pub mod physics;
 pub mod planet_baker;
 pub mod pulsar;
 pub mod sky;
 pub mod spawner;
 pub mod star_common;
+pub mod terrain;
 
 use self::materials::{PlanetMaterial, StarMaterial};
 
@@ -251,6 +253,7 @@ impl Plugin for UniversePlugin {
             .add_plugins(MaterialPlugin::<StarMaterial>::default())
             .add_plugins(MaterialPlugin::<PlanetMaterial>::default())
             .add_plugins(planet_baker::PlanetBakerPlugin)
+            .add_plugins(terrain::TerrainPlugin)
             .add_event::<StarClicked>()
             .add_event::<SystemSavedEvent>()
             // Global Ambient Light so things aren't pitch black
