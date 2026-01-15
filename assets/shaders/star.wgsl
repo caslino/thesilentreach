@@ -111,7 +111,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // 4. HDR Bloom Push
     // Multiply the final color by a high value to force it into the HDR range for Bloom
-    let hdr_strength = 30.0;
+    // 4. Hot Core Logic (Fix White Star)
+    // We want the center to be hot white, but the edges to retain color
+    let intensity = 20.0;
+    let glow = mix(material.color.rgb, vec3<f32>(1.0, 1.0, 1.0), heat * 0.5);
     
-    return vec4<f32>(color * hdr_strength, 1.0);
+    // Add corona to glow
+    let final = glow + (material.color.rgb * corona_intensity * 2.0);
+
+    return vec4<f32>(final * intensity, 1.0);
 }

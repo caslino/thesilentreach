@@ -605,6 +605,41 @@ fn spawn_star_with_data(
                 SystemLabel,
             ));
         });
+
+        // Asteroid Belt (GPU Instanced)
+        // 10,000 asteroids
+        let mut rng = rand::thread_rng();
+        let asteroid_count = 10_000;
+        let mut asteroids = Vec::with_capacity(asteroid_count);
+        for _ in 0..asteroid_count {
+            let dist: f32 = rng.gen_range(2000.0..15000.0); // Wide belt
+            let speed = 50.0 / dist.sqrt() * 10.0; // Kepler-ish
+            let angle = rng.gen_range(0.0..std::f32::consts::TAU);
+
+            // Random Color (Ice vs Rock)
+            let is_ice = rng.gen_bool(0.3);
+            let color = if is_ice {
+                [0.8, 0.9, 1.0, 1.0] // Icon
+            } else {
+                [0.4, 0.35, 0.3, 1.0] // Rock
+            };
+
+            asteroids.push(crate::universe::gpu_physics::OrbitalElement {
+                radius: dist,
+                speed,
+                initial_angle: angle,
+                eccentricity: 0.0,
+                color,
+            });
+        }
+
+        root.spawn((
+            crate::universe::gpu_physics::OrbitBatch {
+                elements: asteroids,
+            },
+            Transform::IDENTITY,
+            Visibility::default(),
+        ));
     });
 
     // Planets (Separate from system_root hierarchy for GridCell independence)

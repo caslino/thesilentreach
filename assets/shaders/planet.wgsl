@@ -102,7 +102,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if (material.use_atlas != 0u) {
         let atlas_uv = in.uv * material.atlas_scale + material.atlas_offset;
-        color = textureSample(atlas_texture, atlas_sampler, atlas_uv).rgb;
+        let sample = textureSample(atlas_texture, atlas_sampler, atlas_uv);
+        
+        // Fallback if texture is not ready (transparent)
+        if (sample.a < 0.1) {
+            color = material.base_color.rgb; // Show base color while loading
+        } else {
+            color = sample.rgb;
+        }
     } else if (material.planet_class == 1u) {
         // --- GAS GIANT GENERATION ---
 

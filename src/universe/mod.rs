@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub struct UniversePlugin;
 
+pub mod gpu_physics;
 pub mod gpu_star_renderer;
 pub mod materials;
 pub mod nebula;
