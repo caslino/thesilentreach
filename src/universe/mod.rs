@@ -69,44 +69,93 @@ pub struct StarDetails {
     pub planets: Option<Vec<DetailedPlanet>>,
 }
 
+/// Full OBAFGKM spectral classification for stars
+/// Colors and sizes based on astrophysical research (Hertzsprung-Russell diagram)
+/// Slightly over-saturated for gameplay visibility
+#[allow(non_camel_case_types)] // Intentional: O_BlueGiant is clearer than OBlueGiant
 #[derive(Component, Debug, Clone, Copy, Serialize, Deserialize, Reflect, PartialEq, Eq)]
 pub enum StarType {
-    BlueGiant,
-    YellowDwarf,
-    RedDwarf,
-    // NeutronStar, // Future expansion?
+    // Main Sequence (OBAFGKM)
+    O_BlueGiant,   // Electric Blue / Violet - Hottest, largest
+    B_BlueWhite,   // Pale Blue
+    A_White,       // Pure White
+    F_YellowWhite, // Cream / Off-White
+    G_YellowDwarf, // Golden Yellow (The Sun)
+    K_OrangeDwarf, // Peach / Pale Orange - The "Goldilocks" star
+    M_RedDwarf,    // Deep Orange-Red - Most common
+    // Exotic Remnants
+    NeutronStar, // Tiny, extreme brightness, spinning jets
+    BlackHole,   // Black sphere with accretion disk
 }
 
 impl StarType {
+    /// Returns the base color for this star type (sRGB)
+    /// Based on blackbody radiation with game-enhanced saturation
     pub fn get_base_color(&self) -> Color {
         match self {
-            StarType::BlueGiant => Color::srgb(0.2, 0.4, 1.0), // Deep Hot Blue
-            StarType::YellowDwarf => Color::srgb(1.0, 0.9, 0.6), // Sun-like
-            StarType::RedDwarf => Color::srgb(1.0, 0.3, 0.1),  // Dim Red
+            // OBAFGKM Main Sequence
+            StarType::O_BlueGiant => Color::srgb(0.5, 0.6, 1.0), // Electric blue
+            StarType::B_BlueWhite => Color::srgb(0.6, 0.7, 1.0), // Pale blue
+            StarType::A_White => Color::srgb(0.9, 0.95, 1.0),    // Pure white
+            StarType::F_YellowWhite => Color::srgb(1.0, 1.0, 0.9), // Cream
+            StarType::G_YellowDwarf => Color::srgb(1.0, 0.9, 0.6), // Golden yellow (Sun)
+            StarType::K_OrangeDwarf => Color::srgb(1.0, 0.75, 0.5), // Peach orange
+            StarType::M_RedDwarf => Color::srgb(1.0, 0.4, 0.2),  // Deep orange-red
+            // Exotic
+            StarType::NeutronStar => Color::srgb(0.8, 0.9, 1.0), // Bright blue-white
+            StarType::BlackHole => Color::srgb(0.0, 0.0, 0.0),   // Black (handled specially)
         }
     }
 
+    /// Returns the size range (min, max) for this star type
+    /// Relative to G-type = 1.0x (~50 units)
     pub fn get_size_range(&self) -> (f32, f32) {
         match self {
-            StarType::BlueGiant => (80.0, 150.0),
-            StarType::YellowDwarf => (40.0, 70.0),
-            StarType::RedDwarf => (15.0, 35.0),
+            // OBAFGKM - Scaled from research: O=15x, B=7x, A=2.5x, F=1.5x, G=1x, K=0.8x, M=0.3x
+            StarType::O_BlueGiant => (500.0, 1000.0), // 10-20x Sun
+            StarType::B_BlueWhite => (250.0, 400.0),  // 5-8x Sun
+            StarType::A_White => (100.0, 150.0),      // 2-3x Sun
+            StarType::F_YellowWhite => (60.0, 90.0),  // 1.2-1.8x Sun
+            StarType::G_YellowDwarf => (40.0, 60.0),  // 0.8-1.2x Sun (baseline)
+            StarType::K_OrangeDwarf => (30.0, 50.0),  // 0.6-1.0x Sun
+            StarType::M_RedDwarf => (10.0, 25.0),     // 0.2-0.5x Sun
+            // Exotic
+            StarType::NeutronStar => (0.5, 2.0), // Tiny (~20km real, visible point)
+            StarType::BlackHole => (20.0, 100.0), // Event horizon size varies
         }
     }
 
+    /// Returns the point light intensity for this star type
+    /// Exponentially scaled based on stellar luminosity class
     pub fn get_light_intensity(&self) -> f32 {
         match self {
-            StarType::BlueGiant => 50_000_000_000.0,
-            StarType::YellowDwarf => 10_000_000_000.0,
-            StarType::RedDwarf => 2_000_000_000.0,
+            // Main sequence luminosity (exponential scaling)
+            StarType::O_BlueGiant => 100_000_000_000.0, // 100B - Blinding
+            StarType::B_BlueWhite => 50_000_000_000.0,  // 50B
+            StarType::A_White => 20_000_000_000.0,      // 20B
+            StarType::F_YellowWhite => 15_000_000_000.0, // 15B
+            StarType::G_YellowDwarf => 10_000_000_000.0, // 10B (Sun baseline)
+            StarType::K_OrangeDwarf => 5_000_000_000.0, // 5B
+            StarType::M_RedDwarf => 1_000_000_000.0,    // 1B - Dim
+            // Exotic
+            StarType::NeutronStar => 200_000_000_000.0, // 200B - Extreme bloom
+            StarType::BlackHole => 0.0,                 // No light emission
         }
     }
 
+    /// Returns the point light range for this star type
     pub fn get_light_range(&self) -> f32 {
         match self {
-            StarType::BlueGiant => 5_000_000.0,
-            StarType::YellowDwarf => 2_000_000.0,
-            StarType::RedDwarf => 800_000.0,
+            StarType::O_BlueGiant => 10_000_000.0,
+            StarType::B_BlueWhite => 7_000_000.0,
+            StarType::A_White => 4_000_000.0,
+            StarType::F_YellowWhite => 3_000_000.0,
+            StarType::G_YellowDwarf => 2_000_000.0,
+            StarType::K_OrangeDwarf => 1_500_000.0,
+            StarType::M_RedDwarf => 500_000.0,
+            // Exotic
+            StarType::NeutronStar => 15_000_000.0, // Despite size, very bright
+            StarType::BlackHole => 0.0,            // No range
         }
     }
 }
@@ -386,7 +435,7 @@ pub fn get_solar_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)> {
     systems.push((
         center,
         StarDetails {
-            star_type: StarType::YellowDwarf,
+            star_type: StarType::G_YellowDwarf,
             color: Color::srgb(1.0, 1.0, 0.9), // White/Yellow Sun
             size: 150.0,
             planets: Some(planets),
@@ -611,8 +660,8 @@ pub fn get_jupiter_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)>
     systems.push((
         center,
         StarDetails {
-            star_type: StarType::RedDwarf, // Dim star as placeholder
-            color: Color::NONE,            // Invisible? Text2d might still show.
+            star_type: StarType::M_RedDwarf, // Dim star as placeholder
+            color: Color::NONE,              // Invisible? Text2d might still show.
             size: 1.0,
             planets: Some(planets),
         },

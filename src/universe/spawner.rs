@@ -554,57 +554,151 @@ fn spawn_star_with_data(
     commands.entity(parent_id).add_child(system_root);
 
     commands.entity(system_root).with_children(|root| {
-        // Star Sphere
-        root.spawn((
-            Mesh3d(common_meshes.unit_sphere_high.clone()),
-            MeshMaterial3d(star_materials.add(StarMaterial {
-                color: LinearRgba::from(data.color),
-                seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456, // Simple Seed
-            })),
-            Mass(1_000_000.0),
-            Radius(data.size),
-            Star,
-            StarDetails {
-                star_type: data.star_type,
-                color: data.color,
-                size: data.size,
-                planets: None,
-            },
-            Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
-        ))
-        .observe(
-            move |_trigger: Trigger<Pointer<Click>>,
-                  mut events: EventWriter<crate::universe::StarClicked>| {
-                events.send(crate::universe::StarClicked {
-                    entity: _trigger.entity(),
-                    cell,
+        // Special handling for exotic star types
+        match data.star_type {
+            crate::universe::StarType::BlackHole => {
+                // Black Hole: Black sphere with no light emission
+                // Note: Full BlackHoleMaterial with raymarching is in separate binary
+                root.spawn((
+                    Mesh3d(common_meshes.unit_sphere_high.clone()),
+                    MeshMaterial3d(std_materials.add(StandardMaterial {
+                        base_color: Color::BLACK,
+                        emissive: LinearRgba::BLACK,
+                        unlit: true,
+                        ..default()
+                    })),
+                    Mass(10_000_000_000.0), // Extreme mass
+                    Radius(data.size),
+                    Star,
+                    StarDetails {
+                        star_type: data.star_type,
+                        color: data.color,
+                        size: data.size,
+                        planets: None,
+                    },
+                    Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
+                ))
+                .observe(
+                    move |_trigger: Trigger<Pointer<Click>>,
+                          mut events: EventWriter<crate::universe::StarClicked>| {
+                        events.send(crate::universe::StarClicked {
+                            entity: _trigger.entity(),
+                            cell,
+                        });
+                    },
+                )
+                .with_children(|bh| {
+                    // No light for Black Hole (it absorbs light)
+                    // System Label
+                    bh.spawn((
+                        Text2d::new(star_name.clone()),
+                        TextFont { font_size: 100.0, ..default() },
+                        TextColor(Color::srgb(0.5, 0.0, 0.5)), // Purple for ominous feel
+                        TextLayout::new_with_justify(JustifyText::Center),
+                        Transform::from_xyz(0.0, data.size * 2.5, 0.0).with_scale(Vec3::splat(1.0)),
+                        SystemLabel,
+                    ));
                 });
-            },
-        )
-        .with_children(|star| {
-            // Light
-            star.spawn(PointLight {
-                color: data.color,
-                intensity: data.star_type.get_light_intensity(),
-                range: data.star_type.get_light_range(),
-                shadows_enabled: false, // Performance: Realtime shadows on many point lights is too expensive
-                ..default()
-            });
-
-            // System Label (Billboard)
-            star.spawn((
-                Text2d::new(star_name),
-                TextFont {
-                    font_size: 100.0,
-                    ..default()
-                }, // Large in-world font
-                TextColor(Color::WHITE),
-                TextLayout::new_with_justify(JustifyText::Center),
-                Transform::from_xyz(0.0, data.size * 2.5, 0.0) // Increased offset: 2.5x radius
-                    .with_scale(Vec3::splat(1.0)), // Ensure scale
-                SystemLabel,
-            ));
-        });
+            }
+            crate::universe::StarType::NeutronStar => {
+                // Neutron Star: Tiny but extremely bright with bloom
+                root.spawn((
+                    Mesh3d(common_meshes.unit_sphere_high.clone()),
+                    MeshMaterial3d(star_materials.add(StarMaterial {
+                        // Multiply color for extreme HDR intensity (will bloom heavily)
+                        color: LinearRgba::from(data.color) * 50.0,
+                        seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
+                    })),
+                    Mass(1_000_000_000.0), // Very dense
+                    Radius(data.size),
+                    Star,
+                    StarDetails {
+                        star_type: data.star_type,
+                        color: data.color,
+                        size: data.size,
+                        planets: None,
+                    },
+                    Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
+                ))
+                .observe(
+                    move |_trigger: Trigger<Pointer<Click>>,
+                          mut events: EventWriter<crate::universe::StarClicked>| {
+                        events.send(crate::universe::StarClicked {
+                            entity: _trigger.entity(),
+                            cell,
+                        });
+                    },
+                )
+                .with_children(|ns| {
+                    // Extreme point light
+                    ns.spawn(PointLight {
+                        color: data.color,
+                        intensity: data.star_type.get_light_intensity(),
+                        range: data.star_type.get_light_range(),
+                        shadows_enabled: false,
+                        ..default()
+                    });
+                    // System Label
+                    ns.spawn((
+                        Text2d::new(star_name.clone()),
+                        TextFont { font_size: 100.0, ..default() },
+                        TextColor(Color::srgb(0.8, 0.9, 1.0)), // Bright blue-white
+                        TextLayout::new_with_justify(JustifyText::Center),
+                        Transform::from_xyz(0.0, data.size * 10.0, 0.0) // Extra offset for tiny star
+                            .with_scale(Vec3::splat(1.0)),
+                        SystemLabel,
+                    ));
+                });
+            }
+            _ => {
+                // Standard star rendering for OBAFGKM types
+                root.spawn((
+                    Mesh3d(common_meshes.unit_sphere_high.clone()),
+                    MeshMaterial3d(star_materials.add(StarMaterial {
+                        color: LinearRgba::from(data.color),
+                        seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
+                    })),
+                    Mass(1_000_000.0),
+                    Radius(data.size),
+                    Star,
+                    StarDetails {
+                        star_type: data.star_type,
+                        color: data.color,
+                        size: data.size,
+                        planets: None,
+                    },
+                    Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
+                ))
+                .observe(
+                    move |_trigger: Trigger<Pointer<Click>>,
+                          mut events: EventWriter<crate::universe::StarClicked>| {
+                        events.send(crate::universe::StarClicked {
+                            entity: _trigger.entity(),
+                            cell,
+                        });
+                    },
+                )
+                .with_children(|star| {
+                    // Light
+                    star.spawn(PointLight {
+                        color: data.color,
+                        intensity: data.star_type.get_light_intensity(),
+                        range: data.star_type.get_light_range(),
+                        shadows_enabled: false,
+                        ..default()
+                    });
+                    // System Label (Billboard)
+                    star.spawn((
+                        Text2d::new(star_name.clone()),
+                        TextFont { font_size: 100.0, ..default() },
+                        TextColor(Color::WHITE),
+                        TextLayout::new_with_justify(JustifyText::Center),
+                        Transform::from_xyz(0.0, data.size * 2.5, 0.0).with_scale(Vec3::splat(1.0)),
+                        SystemLabel,
+                    ));
+                });
+            }
+        }
 
         // Asteroid Belt (GPU Instanced)
         // 10,000 asteroids

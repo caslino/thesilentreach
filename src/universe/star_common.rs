@@ -31,10 +31,6 @@ pub fn get_star_data(
     // Reuse specific bits or re-hash
     let _exists_val = rand_f32(seed);
 
-    // Logic from spawner.rs:
-    // let is_origin = x == 0 && y == 0 && z == 0;
-    // let density_chance = if is_origin { 1.0 } else { 0.005 };
-
     // Note: We need to handle coord wrapping if i64 is large, but for now casting to u32 is "okay"
     // for local noise, though technically it loops every 4 billion cells.
     // A better approach is hashing u64 chunks.
@@ -61,14 +57,30 @@ pub fn get_star_data(
         return None;
     }
 
-    // 3. Determine Star Type
+    // 3. Determine Star Type using OBAFGKM distribution
+    // Based on real stellar census: M=76%, K=12%, G=7%, F=3%, A=1.5%, B=0.4%, O=0.09%
+    // Plus exotic remnants: NeutronStar=0.009%, BlackHole=0.001%
     let rnd_type = rand_f32(pcg_hash(final_seed.wrapping_add(1)));
-    let star_type = if rnd_type < 0.1 {
-        crate::universe::StarType::BlueGiant // Rare
-    } else if rnd_type < 0.6 {
-        crate::universe::StarType::RedDwarf // Common
+
+    use crate::universe::StarType;
+    let star_type = if rnd_type < 0.76 {
+        StarType::M_RedDwarf // 76% - Most common
+    } else if rnd_type < 0.88 {
+        StarType::K_OrangeDwarf // 12% - The new "Goldilocks" star
+    } else if rnd_type < 0.95 {
+        StarType::G_YellowDwarf // 7% - Sun-like
+    } else if rnd_type < 0.98 {
+        StarType::F_YellowWhite // 3% - Cream/Off-white
+    } else if rnd_type < 0.995 {
+        StarType::A_White // 1.5% - Pure white
+    } else if rnd_type < 0.999 {
+        StarType::B_BlueWhite // 0.4% - Pale blue
+    } else if rnd_type < 0.9999 {
+        StarType::O_BlueGiant // 0.09% - Rare giants
+    } else if rnd_type < 0.99999 {
+        StarType::NeutronStar // 0.009% - Very rare exotic
     } else {
-        crate::universe::StarType::YellowDwarf // Average
+        StarType::BlackHole // 0.001% - Extremely rare
     };
 
     // 4. Properties from Type
