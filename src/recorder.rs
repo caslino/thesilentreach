@@ -190,7 +190,7 @@ fn capture_frame(
 
 fn on_screenshot_captured(
     trigger: Trigger<ScreenshotCaptured>,
-    mut commands: Commands,
+    _commands: Commands,
     query: Query<&FrameRepeat>,
     state: Res<RecordingState>,
 ) {

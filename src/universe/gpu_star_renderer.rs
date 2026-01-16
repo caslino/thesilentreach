@@ -6,8 +6,6 @@ use bevy::{
         Render, RenderApp, RenderSet,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_graph::{RenderGraph, RenderGraphContext, Node, NodeRunError, RenderLabel},
-        view::{ViewUniforms, ViewUniform, ViewUniformOffset},
-        render_asset::RenderAssets,
     },
     render::render_phase::{RenderCommandResult, TrackedRenderPass, ViewSortedRenderPhases},
     render::sync_world::MainEntity,
@@ -17,9 +15,8 @@ use bevy::{
     ecs::query::QueryItem,
     pbr::{MeshViewBindGroup, MeshPipeline, SetMeshViewBindGroup},
 };
-use crate::universe::{SectorIndex, UniverseSeed, SECTOR_SIZE};
+use crate::universe::{SectorIndex, SECTOR_SIZE};
 use crate::universe::physics::GRID_SIZE;
-use std::borrow::Cow;
 use bytemuck::{Pod, Zeroable};
 
 pub struct GPUStarPlugin;

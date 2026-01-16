@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result, params};
 use big_space::GridCell;
 use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
-use crate::universe::{DetailedPlanet, PlanetType, SectorIndex, StarDetails};
+use crate::universe::{SectorIndex, StarDetails};
 use serde::{Serialize, Deserialize};
 use serde_json;
 
@@ -27,7 +27,7 @@ pub struct DiscoveredWorld {
 }
 
 // ... (Existing DiscoveredWorld and imports)
-use bevy::prelude::*; // Ensure Vec3 is available
+ // Ensure Vec3 is available
 
 #[derive(Debug, Clone)]
 pub struct PlayerState {

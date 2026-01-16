@@ -850,7 +850,7 @@ fn spawn_star_with_data(
 
                 let planet_seed = dist * 0.123 + angle;
                 let p_type = PlanetType::from_seed(planet_seed);
-                let (col1, col2) = p_type.get_palette();
+                let (_col1, _col2) = p_type.get_palette();
 
                 let x = dist * angle.cos();
                 let z = dist * angle.sin();
