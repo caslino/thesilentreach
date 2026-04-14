@@ -69,14 +69,80 @@ fn hash(p: vec3<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
+// Optimized 3D Simplex Noise for fluid stellar strands
+fn mod289_3(x: vec3<f32>) -> vec3<f32> { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+fn mod289_4(x: vec4<f32>) -> vec4<f32> { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+fn permute_4(x: vec4<f32>) -> vec4<f32> { return mod289_4(((x * 34.0) + 1.0) * x); }
+fn taylorInvSqrt_4(r: vec4<f32>) -> vec4<f32> { return 1.79284291400159 - 0.85373472095314 * r; }
+
+fn snoise(v: vec3<f32>) -> f32 {
+    let C = vec2<f32>(1.0/6.0, 1.0/3.0);
+    let D = vec4<f32>(0.0, 0.5, 1.0, 2.0);
+    var i  = floor(v + dot(v, C.yyy));
+    let x0 = v - i + dot(i, C.xxx);
+    let g = step(x0.yzx, x0.xyz);
+    let l = 1.0 - g;
+    let i1 = min(g.xyz, l.zxy);
+    let i2 = max(g.xyz, l.zxy);
+    let x1 = x0 - i1 + C.xxx;
+    let x2 = x0 - i2 + C.yyy;
+    let x3 = x0 - D.yyy;
+    i = mod289_3(i);
+    let p = permute_4(permute_4(permute_4(
+             i.z + vec4<f32>(0.0, i1.z, i2.z, 1.0))
+           + i.y + vec4<f32>(0.0, i1.y, i2.y, 1.0))
+           + i.x + vec4<f32>(0.0, i1.x, i2.x, 1.0));
+    let n_ = 0.142857142857;
+    let ns = n_ * D.wyz - D.xzx;
+    let j = p - 49.0 * floor(p * ns.z * ns.z);
+    let x = floor(j * ns.z);
+    let y = floor(j - 7.0 * x);
+    let x_f = x * ns.x + ns.y;
+    let y_f = y * ns.x + ns.y;
+    let h = 1.0 - abs(x_f) - abs(y_f);
+    let b0 = vec4<f32>(x_f.xy, y_f.xy);
+    let b1 = vec4<f32>(x_f.zw, y_f.zw);
+    let s0 = floor(b0) * 2.0 + 1.0;
+    let s1 = floor(b1) * 2.0 + 1.0;
+    let sh = -step(h, vec4<f32>(0.0));
+    let a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+    let a1 = b1.xzyw + s1.xzyw * sh.zzww;
+    var p0 = vec3<f32>(a0.xy, h.x);
+    var p1 = vec3<f32>(a0.zw, h.y);
+    var p2 = vec3<f32>(a1.xy, h.z);
+    var p3 = vec3<f32>(a1.zw, h.w);
+    let norm = taylorInvSqrt_4(vec4<f32>(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+    var m = max(0.6 - vec4<f32>(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), vec4<f32>(0.0));
+    m = m * m;
+    return 42.0 * dot(m * m, vec4<f32>(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+}
+
+fn sfbm(p: vec3<f32>) -> f32 {
+    var v = 0.0;
+    var a = 0.5;
+    var pos = p;
+    for (var i = 0; i < 3; i++) {
+        v += a * (snoise(pos) * 0.5 + 0.5);
+        pos = pos * 2.0 + vec3<f32>(100.0);
+        a *= 0.5;
+    }
+    return v;
+}
+
 fn noise(p: vec3<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash(i + vec3<f32>(0.0)), hash(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
-                   mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
-               mix(mix(hash(i + vec3<f32>(0.0, 0.0, 1.0)), hash(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
-                   mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), u.z);
+    // Quintic interpolation for smoother "lines"
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0); 
+
+    return mix(
+        mix(mix(hash(i + vec3<f32>(0.0, 0.0, 0.0)), hash(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
+        mix(mix(hash(i + vec3<f32>(0.0, 0.0, 1.0)), hash(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 1.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), 
+        u.z
+    );
 }
 
 fn fbm(p: vec3<f32>) -> f32 {
@@ -152,13 +218,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // CONVECTION & PLASMA
             let warp = fbm(sphere_pos * 1.6 + vec3<f32>(time * 0.1, 0.0, material.seed));
-            let w_pos = sphere_pos + vec3<f32>(warp * material.warp_intensity);
+            let w_pos = sphere_pos + vec3<f32>(warp * material.warp_intensity + material.seed);
             
             let vor = voronoi(w_pos * material.convection_scale + vec3<f32>(time * material.convection_speed));
             let cells = smoothstep(0.1, 0.4, vor.y - vor.x);
             
-            let turb = 0.4 + fbm(w_pos * 4.0 + vec3<f32>(time * material.plasma_speed)) * 1.5;
-            let spots = smoothstep(0.6, 0.8, fbm(w_pos * 2.5 + vec3<f32>(time * 0.08)));
+            let turb = 0.4 + sfbm(w_pos * 4.0 + vec3<f32>(time * material.plasma_speed)) * 1.5;
+            let spots = smoothstep(0.6, 0.8, sfbm(w_pos * 2.5 + vec3<f32>(time * 0.08)));
             
             // Fresnel / Rim on surface
             let rim = 1.0 - max(dot(rd, -normalize(hit_point)), 0.0);
@@ -179,22 +245,41 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let d = length(ro - rd * dot(ro, rd));
         
         if (d < 1.0) {
-            let r_norm = clamp((d - core_r) / (1.0 - core_r), 0.0, 1.0);
-            let flare_pos = normalize(in.local_pos) * material.flare_scale + vec3<f32>(time * material.flare_speed);
+            let r_norm = (d - core_r) / (1.0 - core_r);
+            
+            // Determine the radial direction from the center
+            let flare_dir = normalize(in.local_pos);
+            
+            // 1. Create an evolving "time coordinate"
+            let flow_time = time * material.flare_speed;
+
+            // 2. Sample noise with a "Warp" component to create roiling
+            // We use cross product or a fixed offset to ensure motion isn't just radial
+            let warp_coord = flare_dir * material.flare_scale;
+            let roil = sfbm(warp_coord * 0.5 + flow_time * 0.2);
+
+            // 3. Combine for the final sampling position
+            // Adding 'roil' into the coordinate creates the "twisting" filament look
+            let flare_pos = warp_coord + (roil * 2.0) + vec3<f32>(flow_time, flow_time * 0.5, flow_time) + vec3<f32>(material.seed);
             
             var strands = 0.0;
             if (material.flare_mode == 0u) {
                 // UNIFORM DISTRIBUTED FLARES
-                strands = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 4.0);
+                strands = pow(sfbm(flare_pos), 4.0);
             } else {
                 // RANDOM SPOTTY FLARES (Eruptions)
-                let spot_mask = pow(smoothstep(0.4, 0.7, fbm(flare_pos * 0.2)), 5.0);
-                let detail = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 3.0);
-                strands = spot_mask * detail * 8.0; 
+                let spot_mask = pow(smoothstep(0.5, 0.8, sfbm(flare_pos * 0.08)), 6.0);
+                let detail = pow(sfbm(flare_pos), 3.0);
+                strands = spot_mask * detail * 25.0; 
             }
             
-            let flare_alpha = strands * (1.0 - r_norm) * material.flare_intensity;
-            let corona = pow(1.0 - r_norm, 4.0) * material.corona_intensity;
+            // SURFACE MASK: Pins the strands to the surface silhouette
+            let surface_noise = sfbm(normalize(in.local_pos) * 15.0 + material.seed) * 0.05;
+            let surface_mask = smoothstep(-0.2 + surface_noise, 0.1 + surface_noise, r_norm);
+            
+            // GENTLER FALLOFF: pow(..., 0.8) makes strands reach further/longer before fading
+            let flare_alpha = strands * (1.0 - pow(clamp(r_norm, 0.0, 1.0), 0.8)) * surface_mask * material.flare_intensity;
+            let corona = pow(1.0 - pow(clamp(r_norm, 0.0, 1.0), 1.2), 5.0) * material.corona_intensity;
             
             let glow_rgb = base_color * (flare_alpha + corona);
             
@@ -202,7 +287,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 final_color = mix(final_color, glow_rgb, 1.0 - final_alpha);
                 final_alpha = max(final_alpha, clamp(flare_alpha + corona * 0.5, 0.0, 1.0));
             } else {
-                let bleed = smoothstep(0.1, 0.0, r_norm);
+                // Bleed flares slightly onto the edge of the core for a smoother transition
+                let bleed = smoothstep(0.1, -0.05, r_norm);
                 final_color += glow_rgb * bleed;
             }
         }

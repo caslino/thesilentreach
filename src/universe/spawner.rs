@@ -31,7 +31,7 @@ impl Plugin for StarSystemSpawnerPlugin {
             .init_resource::<SectorTaskTracker>()
             .init_resource::<NoiseTextures>()
             .init_resource::<PlanetTextureAtlas>()
-            .init_resource::<StarPresets>()
+            .insert_resource(load_star_presets_from_disk())
             .init_resource::<PlanetPresets>()
             .add_systems(
                 Update,
@@ -49,6 +49,26 @@ impl Plugin for StarSystemSpawnerPlugin {
     }
 }
 
+/// Load star presets from disk, filtering out metadata keys (e.g. _help)
+fn load_star_presets_from_disk() -> StarPresets {
+    let config_path = "assets/config/star_presets.json";
+    let mut presets = StarPresets::default();
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(raw_map) = serde_json::from_str::<HashMap<String, serde_json::Value>>(&content) {
+            for (key, value) in &raw_map {
+                if key.starts_with('_') {
+                    continue;
+                }
+                if let Ok(visuals) = serde_json::from_value::<StarVisuals>(value.clone()) {
+                    presets.map.insert(key.clone(), visuals);
+                }
+            }
+            info!("STAR CONFIG: Eagerly loaded {} presets from JSON.", presets.map.len());
+        }
+    }
+    presets
+}
+
 /// System to reload star_presets.json and update all materials live
 fn sync_star_presets(
     mut presets: ResMut<StarPresets>,
@@ -64,7 +84,19 @@ fn sync_star_presets(
 
     let config_path = "assets/config/star_presets.json";
     if let Ok(content) = std::fs::read_to_string(config_path) {
-        if let Ok(new_map) = serde_json::from_str::<HashMap<String, StarVisuals>>(&content) {
+        // Parse as raw JSON first, then filter out metadata keys (e.g. _help, _info)
+        if let Ok(raw_map) = serde_json::from_str::<HashMap<String, serde_json::Value>>(&content) {
+            let mut new_map = HashMap::new();
+            for (key, value) in &raw_map {
+                if key.starts_with('_') {
+                    continue; // Skip metadata entries like _help
+                }
+                match serde_json::from_value::<StarVisuals>(value.clone()) {
+                    Ok(visuals) => { new_map.insert(key.clone(), visuals); }
+                    Err(e) => { warn!("STAR CONFIG: Failed to parse '{}': {}", key, e); }
+                }
+            }
+
             // Check if anything actually changed
             if new_map != presets.map {
                 presets.map = new_map;
@@ -74,6 +106,8 @@ fn sync_star_presets(
                 for (_, material) in star_materials.iter_mut() {
                     let type_key = format!("{:?}", material.star_type);
                     if let Some(v) = presets.map.get(&type_key) {
+                        material.color = LinearRgba::new(v.color[0], v.color[1], v.color[2], v.color[3]);
+                        material.seed = v.seed;
                         material.convection_scale = v.convection_scale;
                         material.convection_speed = v.convection_speed;
                         material.warp_intensity = v.warp_intensity;
@@ -757,7 +791,7 @@ fn spawn_star_with_data(
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
                     MeshMaterial3d(star_materials.add({
                         StarMaterial {
-                            color: LinearRgba::from(data.color),
+                            color: LinearRgba::new(visuals.color[0], visuals.color[1], visuals.color[2], visuals.color[3]),
                             seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
                             convection_scale: visuals.convection_scale,
                             convection_speed: visuals.convection_speed,
@@ -773,6 +807,8 @@ fn spawn_star_with_data(
                             flare_height: visuals.flare_height,
                             flare_mode: visuals.flare_mode,
                             flare_enabled: if visuals.flare_enabled { 1 } else { 0 },
+                            _pad1: 0,
+                            _pad2: 0,
                             star_type: data.star_type,
                         }
                     })),
@@ -827,7 +863,7 @@ fn spawn_star_with_data(
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
                     MeshMaterial3d(star_materials.add({
                         StarMaterial {
-                            color: LinearRgba::from(data.color),
+                            color: LinearRgba::new(visuals.color[0], visuals.color[1], visuals.color[2], visuals.color[3]),
                             seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
                             convection_scale: visuals.convection_scale,
                             convection_speed: visuals.convection_speed,
@@ -843,6 +879,8 @@ fn spawn_star_with_data(
                             flare_height: visuals.flare_height,
                             flare_mode: visuals.flare_mode,
                             flare_enabled: if visuals.flare_enabled { 1 } else { 0 },
+                            _pad1: 0,
+                            _pad2: 0,
                             star_type: data.star_type,
                         }
                     })),

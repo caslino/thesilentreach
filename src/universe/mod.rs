@@ -68,6 +68,10 @@ pub struct Orbit {
 /// Dynamic visual parameters for stars, tunable via JSON
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect, PartialEq)]
 pub struct StarVisuals {
+    /// Base color of the star [r, g, b, a]
+    pub color: [f32; 4],
+    /// Per-instance noise seed offset
+    pub seed: f32,
     /// Size of surface bubbles (larger = lower scale)
     pub convection_scale: f32,
     /// Speed of convection motion
@@ -101,6 +105,8 @@ pub struct StarVisuals {
 impl Default for StarVisuals {
     fn default() -> Self {
         Self {
+            color: [1.0, 1.0, 1.0, 1.0],
+            seed: 0.0,
             convection_scale: 4.5,
             convection_speed: 0.04,
             warp_intensity: 0.15,
