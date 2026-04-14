@@ -34,6 +34,8 @@ pub struct StarMaterial {
     pub flare_height: f32,
     #[uniform(0)]
     pub flare_mode: u32,
+    #[uniform(0)]
+    pub flare_enabled: u32,
     
     // Metadata for runtime sync (not sent to GPU)
     pub star_type: super::StarType,
@@ -74,6 +76,27 @@ pub struct PlanetMaterial {
     pub use_atlas: u32,
     #[uniform(0)]
     pub planet_class: u32,
+
+    // Tunable Parameters
+    #[uniform(0)]
+    pub rim_intensity: f32,
+    #[uniform(0)]
+    pub rim_power: f32,
+    #[uniform(0)]
+    pub haze_intensity: f32,
+    #[uniform(0)]
+    pub cloud_threshold: f32,
+    #[uniform(0)]
+    pub cloud_opacity: f32,
+    #[uniform(0)]
+    pub cloud_speed: f32,
+    #[uniform(0)]
+    pub specular_intensity: f32,
+    #[uniform(0)]
+    pub bio_intensity: f32,
+
+    // Metadata for runtime sync (not sent to GPU)
+    pub planet_type: super::PlanetType,
 
     #[texture(7)]
     #[sampler(8)]

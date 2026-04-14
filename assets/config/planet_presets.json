@@ -1,0 +1,62 @@
+{
+  "Terran": {
+    "rim_intensity": 0.8,
+    "rim_power": 4.0,
+    "haze_intensity": 0.4,
+    "cloud_threshold": 0.55,
+    "cloud_opacity": 0.7,
+    "cloud_speed": 1.0,
+    "specular_intensity": 0.2,
+    "bio_intensity": 0.0
+  },
+  "Ice": {
+    "rim_intensity": 0.6,
+    "rim_power": 5.0,
+    "haze_intensity": 0.3,
+    "cloud_threshold": 0.65,
+    "cloud_opacity": 0.4,
+    "cloud_speed": 0.5,
+    "specular_intensity": 0.1,
+    "bio_intensity": 0.0
+  },
+  "Magma": {
+    "rim_intensity": 1.2,
+    "rim_power": 3.0,
+    "haze_intensity": 0.8,
+    "cloud_threshold": 0.8,
+    "cloud_opacity": 0.3,
+    "cloud_speed": 2.0,
+    "specular_intensity": 0.0,
+    "bio_intensity": 5.0
+  },
+  "GasGiant": {
+    "rim_intensity": 0.5,
+    "rim_power": 6.0,
+    "haze_intensity": 0.2,
+    "cloud_threshold": 0.7,
+    "cloud_opacity": 0.5,
+    "cloud_speed": 1.2,
+    "specular_intensity": 0.0,
+    "bio_intensity": 0.0
+  },
+  "Desert": {
+    "rim_intensity": 0.9,
+    "rim_power": 3.5,
+    "haze_intensity": 0.6,
+    "cloud_threshold": 0.85,
+    "cloud_opacity": 0.2,
+    "cloud_speed": 1.5,
+    "specular_intensity": 0.0,
+    "bio_intensity": 0.0
+  },
+  "Ocean": {
+    "rim_intensity": 0.7,
+    "rim_power": 4.5,
+    "haze_intensity": 0.5,
+    "cloud_threshold": 0.5,
+    "cloud_opacity": 0.8,
+    "cloud_speed": 0.8,
+    "specular_intensity": 0.8,
+    "bio_intensity": 4.0
+  }
+}

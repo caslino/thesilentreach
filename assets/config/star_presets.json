@@ -1,19 +1,39 @@
 {
+  "_help": {
+    "VERSION": "2.1",
+    "FIELD_DEFINITIONS": {
+      "convection_scale": "Size of surface granules (higher = larger cells).",
+      "convection_speed": "Speed of surface motion.",
+      "warp_intensity": "Strength of coordinate distortion for internal plasma flows.",
+      "plasma_speed": "Speed of internal plasma flows.",
+      "hot_spot_intensity": "Extra brightness boost for active surface regions.",
+      "corona_intensity": "Outer atmospheric glow strength.",
+      "rim_power": "Sharpness of the core limb darkening.",
+      "intensity": "Global brightness multiplier.",
+      "flare_scale": "Complexity/size of flare strands.",
+      "flare_speed": "How fast flares flicker and pulse.",
+      "flare_intensity": "Brightness of individual flare strands.",
+      "flare_height": "How far flares reach into space (mesh scaling factor).",
+      "flare_mode": "0 = Uniform Halo, 1 = Random/Spotty Eruptions.",
+      "flare_enabled": "Performance Toggle: Set to false to skip flare/corona volume rendering."
+    }
+  },
   "M_RedDwarf": {
     "_info": "Cool, small, long-lived stars. Deep red-orange.",
-    "convection_scale": 100.0,
-    "convection_speed": 10.02,
-    "warp_intensity": 10.08,
-    "plasma_speed": 10.04,
-    "hot_spot_intensity": 1.6,
+    "convection_scale": 6.0,
+    "convection_speed": 0.02,
+    "warp_intensity": 0.08,
+    "plasma_speed": 0.04,
+    "hot_spot_intensity": 0.6,
     "corona_intensity": 0.8,
     "rim_power": 4.0,
     "intensity": 1.0,
     "flare_scale": 12.0,
-    "flare_speed": 1.02,
+    "flare_speed": 0.02,
     "flare_intensity": 1.2,
-    "flare_height": 0,
-    "flare_mode": 1
+    "flare_height": 0.15,
+    "flare_mode": 0,
+    "flare_enabled": true
   },
   "K_OrangeDwarf": {
     "_info": "Stable stars, slightly cooler than the Sun. Warm orange.",
@@ -29,7 +49,8 @@
     "flare_speed": 0.08,
     "flare_intensity": 1.8,
     "flare_height": 0.2,
-    "flare_mode": 0
+    "flare_mode": 0,
+    "flare_enabled": true
   },
   "G_YellowDwarf": {
     "_info": "Yellow stars like Earth's Sun. Balanced visuals.",
@@ -45,7 +66,8 @@
     "flare_speed": 0.1,
     "flare_intensity": 2.2,
     "flare_height": 0.25,
-    "flare_mode": 1
+    "flare_mode": 0,
+    "flare_enabled": true
   },
   "F_YellowWhite": {
     "_info": "Hotter and brighter than the Sun. Bright pale yellow.",
@@ -61,7 +83,8 @@
     "flare_speed": 0.15,
     "flare_intensity": 2.5,
     "flare_height": 0.3,
-    "flare_mode": 0
+    "flare_mode": 0,
+    "flare_enabled": true
   },
   "A_White": {
     "_info": "Very hot, bright stars. High energy blue-white.",
@@ -77,7 +100,8 @@
     "flare_speed": 0.25,
     "flare_intensity": 3.0,
     "flare_height": 0.4,
-    "flare_mode": 1
+    "flare_mode": 1,
+    "flare_enabled": true
   },
   "B_BlueWhite": {
     "_info": "Luminous and hot. Vibrant blue with active plasma.",
@@ -93,7 +117,8 @@
     "flare_speed": 0.4,
     "flare_intensity": 4.5,
     "flare_height": 0.6,
-    "flare_mode": 1
+    "flare_mode": 1,
+    "flare_enabled": true
   },
   "O_BlueGiant": {
     "_info": "Hottest, most massive stars. Violent energetic blue.",
@@ -109,7 +134,8 @@
     "flare_speed": 0.6,
     "flare_intensity": 6.0,
     "flare_height": 0.8,
-    "flare_mode": 1
+    "flare_mode": 1,
+    "flare_enabled": true
   },
   "NeutronStar": {
     "_info": "Extreme energy, violet-white, localized massive eruptions.",
@@ -125,6 +151,24 @@
     "flare_speed": 1.0,
     "flare_intensity": 15.0,
     "flare_height": 1.2,
-    "flare_mode": 1
+    "flare_mode": 1,
+    "flare_enabled": true
+  },
+  "BlackHole": {
+    "_info": "Singularity (Special non-flare type).",
+    "convection_scale": 0.0,
+    "convection_speed": 0.0,
+    "warp_intensity": 0.0,
+    "plasma_speed": 0.0,
+    "hot_spot_intensity": 0.0,
+    "corona_intensity": 0.0,
+    "rim_power": 0.0,
+    "intensity": 0.0,
+    "flare_scale": 0.0,
+    "flare_speed": 0.0,
+    "flare_intensity": 0.0,
+    "flare_height": 0.0,
+    "flare_mode": 0,
+    "flare_enabled": false
   }
 }

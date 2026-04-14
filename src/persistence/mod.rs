@@ -26,6 +26,7 @@ pub struct PersistenceConfig {
     pub scenario: String,
     pub force_origin: bool,
     pub star_override: Option<crate::universe::StarType>,
+    pub planet_override: Option<crate::universe::PlanetType>,
 }
 
 use crate::player::camera::{Velocity, ZenCamera};
@@ -36,6 +37,7 @@ pub struct PersistencePlugin {
     pub scenario: String,
     pub force_origin: bool,
     pub star_override: Option<crate::universe::StarType>,
+    pub planet_override: Option<crate::universe::PlanetType>,
 }
 
 impl Plugin for PersistencePlugin {
@@ -53,6 +55,7 @@ impl Plugin for PersistencePlugin {
                 scenario: self.scenario.clone(),
                 force_origin: self.force_origin,
                 star_override: self.star_override,
+                planet_override: self.planet_override,
             })
             .init_resource::<SpawnLocation>()
             .init_resource::<CurrentSystemData>()
@@ -78,6 +81,15 @@ fn load_player_state(
             // Position at 3x radius for a good view
             local_pos = Vec3::new(0.0, 0.0, max_size * 3.0);
             info!("PERSISTENCE: Star Override ({:?}). Spawning at distance {:.2}", star_type, local_pos.z);
+        } else if let Some(planet_type) = config.planet_override {
+            // Force origin spawn near a planet
+            // Star size is usually 50-100. Planets are further out.
+            // But we already have logic to override the first planet at (0,0,0) in spawner.rs if at origin.
+            // Wait, spawner.rs overrides the first planet in the *list*.
+            // In the "Dummy" system, the first planet is at distance 0 (Jupiter logic).
+            // Let's spawn at a distance that works for most planets (~150-300 range)
+            local_pos = Vec3::new(0.0, 0.0, 400.0);
+            info!("PERSISTENCE: Planet Override ({:?}). Spawning at distance 400.0", planet_type);
         } else {
             info!("PERSISTENCE: Force Origin requested. Spawning at (0,0,0).");
         }

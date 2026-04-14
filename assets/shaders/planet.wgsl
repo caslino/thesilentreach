@@ -18,6 +18,14 @@ struct PlanetMaterial {
     atlas_scale: f32,
     use_atlas: u32,
     planet_class: u32,
+    rim_intensity: f32,
+    rim_power: f32,
+    haze_intensity: f32,
+    cloud_threshold: f32,
+    cloud_opacity: f32,
+    cloud_speed: f32,
+    specular_intensity: f32,
+    bio_intensity: f32,
 };
 
 @group(2) @binding(0) var<uniform> material: PlanetMaterial;
@@ -147,9 +155,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         
         color = mix(material.base_color.rgb, material.second_color.rgb, band_factor_clamped);
         
-        let cloud_noise = textureSample(crater_map, crater_sampler, fract(uv * 8.0 + vec2<f32>(time*0.01, 0.0))).r;
-        if (cloud_noise > 0.7) {
-            color = mix(color, vec3<f32>(1.0, 1.0, 0.9), (cloud_noise - 0.7) * 0.5);
+        let cloud_noise = textureSample(crater_map, crater_sampler, fract(uv * 8.0 + vec2<f32>(time*0.01 * material.cloud_speed, 0.0))).r;
+        if (cloud_noise > material.cloud_threshold) {
+            color = mix(color, vec3<f32>(1.0, 1.0, 0.9), (cloud_noise - material.cloud_threshold) * material.cloud_opacity);
         }
         
         let storm_center = vec2<f32>(0.4, 0.6);
@@ -181,12 +189,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         
         // 2. Dynamic Clouds (White clumpy overlays)
-        let cloud_uv = uv * 6.0 + vec2<f32>(time * 0.005, time * 0.002);
+        let cloud_uv = uv * 6.0 + vec2<f32>(time * 0.005 * material.cloud_speed, time * 0.002 * material.cloud_speed);
         let cloud_noise = textureSample(crater_map, crater_sampler, fract(cloud_uv)).r;
         
-        if (cloud_noise > 0.6) {
-            let cloud_alpha = smoothstep(0.6, 0.8, cloud_noise);
-            color = mix(color, vec3<f32>(1.0, 1.0, 1.0), cloud_alpha * 0.7);
+        if (cloud_noise > material.cloud_threshold) {
+            let cloud_alpha = smoothstep(material.cloud_threshold, material.cloud_threshold + 0.2, cloud_noise);
+            color = mix(color, vec3<f32>(1.0, 1.0, 1.0), cloud_alpha * material.cloud_opacity);
             
             // --- LIFE: ATMOSPHERIC LIGHTNING ---
             let lightning_seed = fract(time * 0.8 + material.seed);
@@ -289,19 +297,19 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Atmospheric Scattering (Rim Light)
     let NdotV = max(dot(normal, view_dir), 0.0);
     let rim_strength = 1.0 - NdotV;
-    let rim = pow(rim_strength, 4.0); // Sharp rim
+    let rim = pow(rim_strength, material.rim_power); // Tunable rim
 
     let atmos_color = material.atmosphere_color.rgb;
     let density = material.atmosphere_density;
 
     // 1. Horizon Glow (Additive)
     // Reduce intensity to prevent whiteout
-    let horizon_glow = atmos_color * rim * density * 0.8; 
+    let horizon_glow = atmos_color * rim * density * material.rim_intensity; 
     
     // 2. Day Side Haze (Mix)
     // Haze is stronger at grazing angles but also present on face
     let haze_factor = (rim_strength * 0.5 + 0.2) * density;
-    color = mix(color, atmos_color, haze_factor * 0.4);
+    color = mix(color, atmos_color, haze_factor * material.haze_intensity);
 
     // Add Horizon Glow
     color += horizon_glow;
@@ -318,7 +326,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let glow_val = smoothstep(0.7, 0.9, bio_noise) * bio_pulse;
             let glow_color = vec3<f32>(0.0, 0.8, 1.0); // Cyan Bio-glow
             
-            color += glow_color * glow_val * night_factor * prox_factor * 3.0;
+            color += glow_color * glow_val * night_factor * prox_factor * material.bio_intensity;
         }
     }
     
@@ -330,7 +338,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         
         // Only apply where there is no cloud (using simple NdotV as proxy for cloud-free if we had a mask)
         // For now, just add it.
-        color += vec3<f32>(0.8, 0.9, 1.0) * glint * 0.6 * (1.0 - rim_strength * 0.5);
+        color += vec3<f32>(0.8, 0.9, 1.0) * glint * material.specular_intensity * (1.0 - rim_strength * 0.5);
     }
     
     // Tone mapping helper: simple Reinhard-ish to keep things in range

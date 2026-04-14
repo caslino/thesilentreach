@@ -37,6 +37,7 @@ pub struct UniverseConfig {
     pub scenario_name: String,
     pub active_seed: u64,
     pub star_override: Option<StarType>,
+    pub planet_override: Option<PlanetType>,
 }
 
 #[derive(Resource, Default, Debug)]
@@ -93,6 +94,8 @@ pub struct StarVisuals {
     pub flare_height: f32,
     /// Mode for distribution: 0 = Uniform, 1 = Random/Spotty
     pub flare_mode: u32,
+    /// Whether flares should be rendered at all (performance toggle)
+    pub flare_enabled: bool,
 }
 
 impl Default for StarVisuals {
@@ -111,6 +114,7 @@ impl Default for StarVisuals {
             flare_intensity: 2.0,
             flare_height: 0.2,
             flare_mode: 0,
+            flare_enabled: true,
         }
     }
 }
@@ -163,6 +167,48 @@ pub struct StarfieldConfig {
 #[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StarPresets {
     pub map: HashMap<String, StarVisuals>,
+}
+
+/// Dynamic visual parameters for planets, tunable via JSON
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect, PartialEq)]
+pub struct PlanetVisuals {
+    /// Intensity of the atmospheric rim glow
+    pub rim_intensity: f32,
+    /// Sharpness of the atmospheric rim glow
+    pub rim_power: f32,
+    /// Overall atmospheric haze intensity 
+    pub haze_intensity: f32,
+    /// Global cloud threshold (lower = more clouds)
+    pub cloud_threshold: f32,
+    /// Global cloud opacity
+    pub cloud_opacity: f32,
+    /// Speed of cloud animation
+    pub cloud_speed: f32,
+    /// Intensity of specular ocean glint
+    pub specular_intensity: f32,
+    /// Intensity of bioluminescent night-side patterns
+    pub bio_intensity: f32,
+}
+
+impl Default for PlanetVisuals {
+    fn default() -> Self {
+        Self {
+            rim_intensity: 0.8,
+            rim_power: 4.0,
+            haze_intensity: 0.4,
+            cloud_threshold: 0.6,
+            cloud_opacity: 0.7,
+            cloud_speed: 1.0,
+            specular_intensity: 0.6,
+            bio_intensity: 3.0,
+        }
+    }
+}
+
+/// Global resource mapping planet types to their current visual parameters
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlanetPresets {
+    pub map: HashMap<String, PlanetVisuals>,
 }
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
@@ -372,6 +418,18 @@ impl PlanetType {
             PlanetType::Ocean => (LinearRgba::from(Color::srgb(0.7, 0.8, 1.0)), 1.1), // Azure Haze
         }
     }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "terran" | "earth" => Some(PlanetType::Terran),
+            "ice" | "frozen" => Some(PlanetType::Ice),
+            "magma" | "volcanic" => Some(PlanetType::Magma),
+            "gasgiant" | "jupiter" | "gas" => Some(PlanetType::GasGiant),
+            "desert" | "arid" | "mars" => Some(PlanetType::Desert),
+            "ocean" | "oceanic" | "water" => Some(PlanetType::Ocean),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Component, Clone, Copy, Debug)]
@@ -432,11 +490,18 @@ impl Plugin for UniversePlugin {
             None
         };
 
+        let planet_override = if let Some(pos) = args.iter().position(|x| x == "--planet") {
+            args.get(pos + 1).and_then(|t| PlanetType::from_str(t))
+        } else {
+            None
+        };
+
         app.insert_resource(UniverseSeed(seed))
             .insert_resource(UniverseConfig {
                 scenario_name,
                 active_seed: seed,
                 star_override,
+                planet_override,
             })
             .add_plugins(BigSpacePlugin::<i64>::default())
             .add_systems(PreStartup, setup_universe)

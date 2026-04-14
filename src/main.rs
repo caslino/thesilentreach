@@ -62,6 +62,19 @@ fn main() {
         None
     };
 
+    let planet_override = if let Some(pos) = args.iter().position(|x| x == "--planet") {
+        let t = args.get(pos + 1).cloned().unwrap_or_default();
+        let result = thesilentreach::universe::PlanetType::from_str(&t);
+        if let Some(pt) = result {
+            println!("COMMAND: PLANET OVERRIDE -> {:?} 🌍", pt);
+        } else {
+            println!("WARNING: Unknown planet type '{}'", t);
+        }
+        result
+    } else {
+        None
+    };
+
     // 1. Setup non-blocking writer
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
 
@@ -105,6 +118,7 @@ fn main() {
             scenario,
             force_origin,
             star_override,
+            planet_override,
         })
         .add_plugins(thesilentreach::recorder::RecorderPlugin)
         .add_systems(Startup, check_gpu)

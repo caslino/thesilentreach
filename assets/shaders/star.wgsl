@@ -17,6 +17,7 @@ struct StarMaterial {
     flare_intensity: f32,
     flare_height: f32,
     flare_mode: u32,
+    flare_enabled: u32,
 };
 
 @group(2) @binding(0) var<uniform> material: StarMaterial;
@@ -75,7 +76,7 @@ fn noise(p: vec3<f32>) -> f32 {
     return mix(mix(mix(hash(i + vec3<f32>(0.0)), hash(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
                    mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
                mix(mix(hash(i + vec3<f32>(0.0, 0.0, 1.0)), hash(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
-                   mix(hash(i + vec3<f32>(0.0, 1.0, 1.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), u.z);
+                   mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), u.z);
 }
 
 fn fbm(p: vec3<f32>) -> f32 {
@@ -169,49 +170,41 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             surface += spots * base_color * material.hot_spot_intensity;
             
             final_color = surface;
-            
-            // SILHOUETTE FIX: Smooth the alphap at the very edge of the core
-            // h is essentially the "depth" of the intersection. When h is near 0, we are at the rim.
             final_alpha = smoothstep(0.0, 0.01, h); 
         }
     }
     
-    // --- 2. FLARES & CORONA (In the shell volume) ---
-    let d = length(ro - rd * dot(ro, rd));
-    
-    if (d < 1.0) {
-        let r_norm = clamp((d - core_r) / (1.0 - core_r), 0.0, 1.0);
-        let flare_pos = normalize(in.local_pos) * material.flare_scale + vec3<f32>(time * material.flare_speed);
+    // --- 2. FLARES & CORONA (Performance Optimized Toggle) ---
+    if (material.flare_enabled == 1u) {
+        let d = length(ro - rd * dot(ro, rd));
         
-        var strands = 0.0;
-        if (material.flare_mode == 0u) {
-            // UNIFORM DISTRIBUTED FLARES
-            strands = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 4.0);
-        } else {
-            // RANDOM SPOTTY FLARES (Eruptions)
-            // Use low freq noise as a mask for eruption sites
-            let spot_mask = pow(smoothstep(0.4, 0.7, fbm(flare_pos * 0.2)), 5.0);
-            // High frequency detail inside the spots
-            let detail = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 3.0);
-            strands = spot_mask * detail * 8.0; 
-        }
-        
-        // Strands fade out with distance from core
-        let flare_alpha = strands * (1.0 - r_norm) * material.flare_intensity;
-        let corona = pow(1.0 - r_norm, 4.0) * material.corona_intensity;
-        
-        let glow_rgb = base_color * (flare_alpha + corona);
-        
-        // Composite flares with core
-        if (final_alpha < 0.99) {
-            // If outside core or at the soft edge, use pure glow/alpha
-            final_color = mix(final_color, glow_rgb, 1.0 - final_alpha);
-            final_alpha = max(final_alpha, clamp(flare_alpha + corona * 0.5, 0.0, 1.0));
-        } else {
-            // If inside core, additively blend the glow at the rim to wrap around
-            // Use r_norm to only bleed glow into the core slightly
-            let bleed = smoothstep(0.1, 0.0, r_norm);
-            final_color += glow_rgb * bleed;
+        if (d < 1.0) {
+            let r_norm = clamp((d - core_r) / (1.0 - core_r), 0.0, 1.0);
+            let flare_pos = normalize(in.local_pos) * material.flare_scale + vec3<f32>(time * material.flare_speed);
+            
+            var strands = 0.0;
+            if (material.flare_mode == 0u) {
+                // UNIFORM DISTRIBUTED FLARES
+                strands = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 4.0);
+            } else {
+                // RANDOM SPOTTY FLARES (Eruptions)
+                let spot_mask = pow(smoothstep(0.4, 0.7, fbm(flare_pos * 0.2)), 5.0);
+                let detail = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 3.0);
+                strands = spot_mask * detail * 8.0; 
+            }
+            
+            let flare_alpha = strands * (1.0 - r_norm) * material.flare_intensity;
+            let corona = pow(1.0 - r_norm, 4.0) * material.corona_intensity;
+            
+            let glow_rgb = base_color * (flare_alpha + corona);
+            
+            if (final_alpha < 0.99) {
+                final_color = mix(final_color, glow_rgb, 1.0 - final_alpha);
+                final_alpha = max(final_alpha, clamp(flare_alpha + corona * 0.5, 0.0, 1.0));
+            } else {
+                let bleed = smoothstep(0.1, 0.0, r_norm);
+                final_color += glow_rgb * bleed;
+            }
         }
     }
     

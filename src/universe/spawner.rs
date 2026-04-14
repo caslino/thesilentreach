@@ -5,7 +5,7 @@ use crate::universe::gpu_star_renderer::StarSector;
 use crate::universe::materials::{PlanetMaterial, StarMaterial};
 use crate::universe::{
     Mass, Planet, PlanetDetails, PlanetType, Radius, SECTOR_SIZE, SectorIndex, Star, StarDetails,
-    UniverseSeed, StarPresets, StarVisuals,
+    UniverseSeed, StarPresets, StarVisuals, PlanetPresets, PlanetVisuals,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -32,12 +32,14 @@ impl Plugin for StarSystemSpawnerPlugin {
             .init_resource::<NoiseTextures>()
             .init_resource::<PlanetTextureAtlas>()
             .init_resource::<StarPresets>()
+            .init_resource::<PlanetPresets>()
             .add_systems(
                 Update,
                 (
                     manage_galaxy_sectors,
                     handle_generation_tasks,
                     sync_star_presets, // Live Tuning System
+                    sync_planet_presets, // Live Tuning System (Planets)
                     sync_universe_view,
                     update_lod_scaling,
                     despawn_distant_systems,
@@ -85,6 +87,7 @@ fn sync_star_presets(
                         material.flare_intensity = v.flare_intensity;
                         material.flare_height = v.flare_height;
                         material.flare_mode = v.flare_mode;
+                        material.flare_enabled = if v.flare_enabled { 1 } else { 0 };
                     }
                 }
 
@@ -94,6 +97,45 @@ fn sync_star_presets(
                     if let Some(v) = presets.map.get(&type_key) {
                         // The mesh must be large enough to contain the flares: size * (1.1 + flare_height)
                         transform.scale = Vec3::splat(details.size * (1.1 + v.flare_height));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// System to reload planet_presets.json and update all materials live
+fn sync_planet_presets(
+    mut presets: ResMut<PlanetPresets>,
+    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    time: Res<Time>,
+    mut last_sync: Local<f32>,
+) {
+    if time.elapsed_secs() - *last_sync < 1.0 { // Throttle disc read
+        return;
+    }
+    *last_sync = time.elapsed_secs();
+
+    let config_path = "assets/config/planet_presets.json";
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(new_map) = serde_json::from_str::<HashMap<String, PlanetVisuals>>(&content) {
+            // Check if anything actually changed
+            if new_map != presets.map {
+                presets.map = new_map;
+                info!("PLANET CONFIG: Reloaded presets from JSON.");
+                
+                // Update the Material Asset cache
+                for (_, material) in planet_materials.iter_mut() {
+                    let type_key = format!("{:?}", material.planet_type);
+                    if let Some(v) = presets.map.get(&type_key) {
+                        material.rim_intensity = v.rim_intensity;
+                        material.rim_power = v.rim_power;
+                        material.haze_intensity = v.haze_intensity;
+                        material.cloud_threshold = v.cloud_threshold;
+                        material.cloud_opacity = v.cloud_opacity;
+                        material.cloud_speed = v.cloud_speed;
+                        material.specular_intensity = v.specular_intensity;
+                        material.bio_intensity = v.bio_intensity;
                     }
                 }
             }
@@ -242,6 +284,7 @@ fn manage_galaxy_sectors(
     let view_dist = 1; // 3x3x3 sectors
     let seed_val = *seed; // Copy seed
     let star_override = config.star_override;
+    let planet_override = config.planet_override;
 
     // Clone DB for async task usage
     let db_clone = db.clone();
@@ -263,7 +306,7 @@ fn manage_galaxy_sectors(
                     let db_for_task = db_clone.clone();
 
                     let task = thread_pool.spawn(async move {
-                        let data = generate_sector_data(sector_idx, seed_val, &db_for_task, star_override);
+                        let data = generate_sector_data(sector_idx, seed_val, &db_for_task, star_override, planet_override);
                         (sector_idx, data)
                     });
                     task_tracker.tasks.insert(sector_idx, task);
@@ -299,26 +342,34 @@ fn generate_sector_data(
     seed: UniverseSeed,
     db: &Database,
     star_override: Option<crate::universe::StarType>,
+    planet_override: Option<crate::universe::PlanetType>,
 ) -> Vec<(GridCell<i64>, StarDetails)> {
-    // 1. Check Database
-    match db.get_sector_data(sector) {
-        Ok(Some(data)) => {
-            info!(
-                "PERSISTENCE: Loaded Sector {:?} with {} stars.",
-                sector,
-                data.len()
-            );
-            return data;
-        }
-        Ok(None) => {
-            info!("PERSISTENCE: Sector {:?} not found. Generating...", sector);
-        }
-        Err(e) => {
-            error!(
-                "PERSISTENCE: Critical Error reading Sector {:?}: {}. Aborting generation to protect data.",
-                sector, e
-            );
-            return Vec::new();
+    let is_origin_sector = sector.x == 0 && sector.y == 0 && sector.z == 0;
+    let has_override = star_override.is_some() || planet_override.is_some();
+
+    // 1. Check Database (Skip if override active at origin)
+    if is_origin_sector && has_override {
+        info!("PERSISTENCE: Override active ({:?}/{:?}). Bypassing DB for origin sector.", star_override, planet_override);
+    } else {
+        match db.get_sector_data(sector) {
+            Ok(Some(data)) => {
+                info!(
+                    "PERSISTENCE: Loaded Sector {:?} with {} stars.",
+                    sector,
+                    data.len()
+                );
+                return data;
+            }
+            Ok(None) => {
+                info!("PERSISTENCE: Sector {:?} not found. Generating...", sector);
+            }
+            Err(e) => {
+                error!(
+                    "PERSISTENCE: Critical Error reading Sector {:?}: {}. Aborting generation to protect data.",
+                    sector, e
+                );
+                return Vec::new();
+            }
         }
     }
 
@@ -341,10 +392,27 @@ fn generate_sector_data(
                 if let Some((mut star_type, color, size)) =
                     crate::universe::star_common::get_star_data(x, y, z, seed.0)
                 {
+                    let mut planets = None;
+                    
                     // Apply override if at origin
                     if x == 0 && y == 0 && z == 0 {
                         if let Some(over) = star_override {
                             star_type = over;
+                        }
+                        
+                        // If planet_override set, ensure we have a planet to override in spawn_star_with_data
+                        if let Some(p_over) = planet_override {
+                             planets = Some(vec![crate::universe::DetailedPlanet {
+                                name: "Override Core".to_string(),
+                                planet_type: p_over,
+                                distance: 0.0, // Or fallback distance
+                                size: 50.0,
+                                color: Color::WHITE,
+                                second_color: None,
+                                atmosphere_color: None,
+                                atmosphere_density: None,
+                                orbit_speed: 0.0,
+                            }]);
                         }
                     }
 
@@ -354,7 +422,7 @@ fn generate_sector_data(
                             star_type,
                             color,
                             size,
-                            planets: None,
+                            planets,
                         },
                     ));
                 }
@@ -362,8 +430,10 @@ fn generate_sector_data(
         }
     }
 
-    // 3. Save to Database
-    if let Err(e) = db.save_sector_data(sector, &stars) {
+    // 3. Save to Database (Skip if override applied to prevent corruption)
+    if is_origin_sector && has_override {
+        info!("PERSISTENCE: Skip saving origin sector override to DB.");
+    } else if let Err(e) = db.save_sector_data(sector, &stars) {
         error!("Failed to save sector data: {}", e);
     }
 
@@ -382,6 +452,7 @@ fn sync_universe_view(
     seed: Res<UniverseSeed>,
     config: Res<crate::universe::UniverseConfig>,
     presets: Res<StarPresets>,
+    planet_presets: Res<PlanetPresets>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else {
         return;
@@ -477,6 +548,7 @@ fn sync_universe_view(
                                     &seed,
                                     &config,
                                     &presets,
+                                    &planet_presets,
                                 );
                                 tracker.spawned_cells.insert(*cell, entities);
                             }
@@ -597,6 +669,7 @@ fn spawn_star_with_data(
     _seed: &UniverseSeed,
     config: &crate::universe::UniverseConfig,
     presets: &Res<StarPresets>,
+    planet_presets: &Res<PlanetPresets>,
 ) -> Vec<Entity> {
     let mut spawned_entities = Vec::new();
 
@@ -699,6 +772,7 @@ fn spawn_star_with_data(
                             flare_intensity: visuals.flare_intensity,
                             flare_height: visuals.flare_height,
                             flare_mode: visuals.flare_mode,
+                            flare_enabled: if visuals.flare_enabled { 1 } else { 0 },
                             star_type: data.star_type,
                         }
                     })),
@@ -768,6 +842,7 @@ fn spawn_star_with_data(
                             flare_intensity: visuals.flare_intensity,
                             flare_height: visuals.flare_height,
                             flare_mode: visuals.flare_mode,
+                            flare_enabled: if visuals.flare_enabled { 1 } else { 0 },
                             star_type: data.star_type,
                         }
                     })),
@@ -854,8 +929,16 @@ fn spawn_star_with_data(
     // Planets
     if let Some(planets) = &data.planets {
         commands.entity(system_root).with_children(|root| {
-            for planet_data in planets {
-                let p_type = planet_data.planet_type;
+            for (p_idx, planet_data) in planets.iter().enumerate() {
+                let mut p_type = planet_data.planet_type;
+                
+                // Apply CLI Override if at origin (overrides first planet)
+                if cell.x == 0 && cell.y == 0 && cell.z == 0 && p_idx == 0 {
+                    if let Some(over) = config.planet_override {
+                        p_type = over;
+                    }
+                }
+
                 let (_col1, col2) = p_type.get_palette();
                 let (atmos_col, atmos_density) = p_type.get_atmosphere_color();
 
@@ -900,6 +983,10 @@ fn spawn_star_with_data(
                         },
                     });
                 } else {
+                    let visuals = planet_presets.map.get(&format!("{:?}", p_type))
+                        .cloned()
+                        .unwrap_or_default();
+
                     planet_entity.insert(MeshMaterial3d(
                         planet_materials.add(PlanetMaterial {
                             base_color: LinearRgba::from(planet_data.color),
@@ -923,10 +1010,26 @@ fn spawn_star_with_data(
                             use_atlas: 0,
                             planet_class: if matches!(p_type, PlanetType::GasGiant) {
                                 1
+                            } else if matches!(p_type, PlanetType::Ocean) {
+                                2
+                            } else if matches!(p_type, PlanetType::Magma) {
+                                3
+                            } else if matches!(p_type, PlanetType::Desert) {
+                                4
                             } else {
                                 0
                             },
                             atlas_texture: atlas.atlas_handle.clone(),
+                            // Tunable Parameters from Presets
+                            rim_intensity: visuals.rim_intensity,
+                            rim_power: visuals.rim_power,
+                            haze_intensity: visuals.haze_intensity,
+                            cloud_threshold: visuals.cloud_threshold,
+                            cloud_opacity: visuals.cloud_opacity,
+                            cloud_speed: visuals.cloud_speed,
+                            specular_intensity: visuals.specular_intensity,
+                            bio_intensity: visuals.bio_intensity,
+                            planet_type: p_type,
                         }),
                     ));
                 }
@@ -1026,6 +1129,10 @@ fn spawn_star_with_data(
                     // Note: We don't add MeshMaterial3d here, the Baker does it!
                 } else {
                     // Legacy Procedural Material (Shader per pixel)
+                    let visuals = planet_presets.map.get(&format!("{:?}", p_type))
+                        .cloned()
+                        .unwrap_or_default();
+
                     planet_entity.insert(MeshMaterial3d(planet_materials.add(PlanetMaterial {
                         base_color: col1,
                         second_color: col2,
@@ -1050,6 +1157,16 @@ fn spawn_star_with_data(
                         atlas_scale: 1.0,
                         use_atlas: 0,
                         atlas_texture: atlas.atlas_handle.clone(),
+                        // Tunable Parameters from Presets
+                        rim_intensity: visuals.rim_intensity,
+                        rim_power: visuals.rim_power,
+                        haze_intensity: visuals.haze_intensity,
+                        cloud_threshold: visuals.cloud_threshold,
+                        cloud_opacity: visuals.cloud_opacity,
+                        cloud_speed: visuals.cloud_speed,
+                        specular_intensity: visuals.specular_intensity,
+                        bio_intensity: visuals.bio_intensity,
+                        planet_type: p_type,
                     })));
                 }
 
