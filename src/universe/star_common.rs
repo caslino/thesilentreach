@@ -88,16 +88,23 @@ pub fn get_star_data(
 
     // Vary color slightly from base
     let base_color = star_type.get_base_color();
-    let LinearRgba {
+
+    // Extract sRGB components directly (base_color is defined in sRGB space)
+    let Srgba {
         red, green, blue, ..
-    } = LinearRgba::from(base_color);
+    } = Srgba::from(base_color);
 
     // Slight random variation (+/- 5%)
     let tint_r = 0.95 + 0.1 * rand_f32(pcg_hash(final_seed.wrapping_add(2)));
     let tint_g = 0.95 + 0.1 * rand_f32(pcg_hash(final_seed.wrapping_add(3)));
     let tint_b = 0.95 + 0.1 * rand_f32(pcg_hash(final_seed.wrapping_add(5))); // New offset
 
-    let color = Color::srgb(red * tint_r, green * tint_g, blue * tint_b);
+    // Clamp to prevent values > 1.0 from sRGB saturation
+    let color = Color::srgb(
+        (red * tint_r).min(1.0),
+        (green * tint_g).min(1.0),
+        (blue * tint_b).min(1.0),
+    );
 
     let (min_s, max_s) = star_type.get_size_range();
     let size = min_s + (max_s - min_s) * rnd_size;

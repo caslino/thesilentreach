@@ -72,33 +72,39 @@ fn rotate_uv(uv: vec2<f32>, angle: f32) -> vec2<f32> {
 }
 
 fn hybrid_sampling(uv: vec2<f32>, seed: f32) -> f32 {
-    let scale = 4.0;
+    // --- 1. DOMAIN WARPING (Break the Grid) ---
+    // Use sediment map at low freq to warp everything else
+    let warp_uv = uv * 1.5 + vec2<f32>(material.seed * 0.1);
+    let warp = textureSample(sediment_map, sediment_sampler, fract(warp_uv)).r;
+    let warped_uv = uv + vec2<f32>(warp * 0.05);
+
+    // --- 2. MULTI-OCTAVE FRACTAL SAMPLING ---
+    let s1 = 1.2; // Macro (Continents)
+    let s2 = 4.0; // Mid (Islands/Mountains)
+    let s3 = 12.0; // Detail (Coasts)
     
-    // Apply seed based perturbation
-    let angle = seed * 123.45;
-    let shift = vec2<f32>(cos(seed), sin(seed));
+    // Seed-based rotations for each octave
+    let rot1 = rotate_uv(warped_uv * s1, seed * 1.23);
+    let rot2 = rotate_uv(warped_uv * s2, seed * 4.56);
+    let rot3 = rotate_uv(warped_uv * s3, seed * 7.89);
 
-    let perturbed_uv = rotate_uv(uv * scale + shift, angle);
+    // Sample different maps for different roles
+    let macro_layer = textureSample(crater_map, crater_sampler, fract(rot1)).r;
+    let mid = textureSample(ridge_map, ridge_sampler, fract(rot2)).r;
+    let detail = textureSample(crater_map, crater_sampler, fract(rot3)).r;
 
-    // Sample textures
-    // Note: textures are small patches, so we tile them
-    let uv_tiled = fract(perturbed_uv);
+    // --- 3. COMBINE (Non-linear layering) ---
+    // macro_layer defines the big continents vs oceans (using power to sharpen)
+    var val = pow(macro_layer, 1.5); 
+    
+    // Add mid-scale features only where there is macro land, or small islands
+    val = mix(val, val + mid * 0.4, 0.6);
+    
+    // Add fine coastal jagging
+    val = mix(val, val + detail * 0.15, 0.5);
 
-    let crater = textureSample(crater_map, crater_sampler, uv_tiled).r;
-    let ridge = textureSample(ridge_map, ridge_sampler, uv_tiled).r;
-    let sediment = textureSample(sediment_map, sediment_sampler, uv_tiled).r;
-
-    // Combine logic (can be tweaked)
-    // Crater map defines base shapes (continents/craters)
-    // Ridge map adds detail
-    // Sediment adds variation
-
-    // Simple mix:
-    let base = crater;
-    let detail = ridge * 0.5;
-
-    // Use sediment to mask detail or add smoothness
-    let val = mix(base, base + detail, sediment);
+    // Contrast boost
+    val = smoothstep(0.1, 0.9, val);
 
     return val;
 }
@@ -106,6 +112,12 @@ fn hybrid_sampling(uv: vec2<f32>, seed: f32) -> f32 {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color: vec3<f32>;
+    let time = mesh_view_bindings::globals.time;
+    let cam_pos = mesh_view_bindings::view.world_position.xyz;
+    let dist_to_cam = distance(cam_pos, in.world_position.xyz);
+    
+    // Proximity factor (1.0 when very close, 0.0 when far)
+    let prox_factor = 1.0 - smoothstep(20.0, 100.0, dist_to_cam);
 
     if (material.use_atlas != 0u) {
         let atlas_uv = in.uv * material.atlas_scale + material.atlas_offset;
@@ -119,58 +131,94 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     } else if (material.planet_class == 1u) {
         // --- GAS GIANT GENERATION ---
-
         let uv = in.uv;
-        
-        // 1. Zonal Flow (Banding) with Turbulence
-        
-        // 1. Zonal Flow (Banding) with Turbulence
         let time = mesh_view_bindings::globals.time;
         let shift = vec2<f32>(cos(material.seed), sin(material.seed));
 
         // Layer 1: Low frequency band distortion
         let noise_low = textureSample(crater_map, crater_sampler, fract(uv * 3.0 + shift)).r;
-        
-        // Layer 2: High frequency turbulence
         let noise_high = textureSample(crater_map, crater_sampler, fract(uv * 12.0 - shift)).r;
-        
-        // Combine for detailed band distortion
         let dist_y = uv.y * 18.0 + noise_low * 0.4 + noise_high * 0.1;
         
-        // Sharpen the bands slightly for distinct zones
         let band_noise = sin(dist_y);
-        let band_detail = sin(dist_y * 3.0 + noise_high * 5.0) * 0.2; // Sub-bands
-        
+        let band_detail = sin(dist_y * 3.0 + noise_high * 5.0) * 0.2; 
         let band_factor = (band_noise + band_detail) * 0.5 + 0.5;
-        let band_factor_clamped = smoothstep(0.2, 0.8, band_factor); // Contrast
+        let band_factor_clamped = smoothstep(0.2, 0.8, band_factor); 
         
-        // Mix Colors
         color = mix(material.base_color.rgb, material.second_color.rgb, band_factor_clamped);
         
-        // Add subtle white clouds/turbulence on top
         let cloud_noise = textureSample(crater_map, crater_sampler, fract(uv * 8.0 + vec2<f32>(time*0.01, 0.0))).r;
         if (cloud_noise > 0.7) {
             color = mix(color, vec3<f32>(1.0, 1.0, 0.9), (cloud_noise - 0.7) * 0.5);
         }
         
-        // 2. The Great Red Spot (Storms)
-        // Check distance to storm center(s)
-        // Use seed to position storm? Or fixed for Jupiter specifically?
-        // Prompt asks for: uv(0.4, 0.6)
-        
         let storm_center = vec2<f32>(0.4, 0.6);
         let storm_dist = distance(uv, storm_center);
-        
-        // Perturb storm edge
         let storm_radius = 0.08 + noise_low * 0.01;
         
         if (storm_dist < storm_radius) {
             let storm_alpha = smoothstep(storm_radius, storm_radius - 0.02, storm_dist);
-            // Deep Red Storm Color
             let storm_color = vec3<f32>(0.6, 0.1, 0.05); 
             color = mix(color, storm_color, storm_alpha);
         }
-
+    } else if (material.planet_class == 2u) {
+        // --- OCEAN WORLD GENERATION ---
+        let uv = in.uv;
+        // 1. Water Surface (Deep/Shallow)
+        let n = hybrid_sampling(uv, material.seed);
+        let deep_water = material.base_color.rgb;
+        let shallow_water = material.second_color.rgb;
+        
+        // Use noise for water depth variation
+        color = mix(deep_water, shallow_water, smoothstep(0.3, 0.7, n));
+        
+        // --- LIFE: SURFACE CURRENTS & FOAM (Close-up only) ---
+        let surface_speed = 0.01;
+        let foam_uv = uv * 40.0 + vec2<f32>(time * surface_speed, 0.0);
+        let foam = textureSample(ridge_map, ridge_sampler, fract(foam_uv)).r;
+        if (foam > 0.8) {
+            color = mix(color, vec3<f32>(0.8, 0.9, 1.0), (foam - 0.8) * 5.0 * prox_factor);
+        }
+        
+        // 2. Dynamic Clouds (White clumpy overlays)
+        let cloud_uv = uv * 6.0 + vec2<f32>(time * 0.005, time * 0.002);
+        let cloud_noise = textureSample(crater_map, crater_sampler, fract(cloud_uv)).r;
+        
+        if (cloud_noise > 0.6) {
+            let cloud_alpha = smoothstep(0.6, 0.8, cloud_noise);
+            color = mix(color, vec3<f32>(1.0, 1.0, 1.0), cloud_alpha * 0.7);
+            
+            // --- LIFE: ATMOSPHERIC LIGHTNING ---
+            let lightning_seed = fract(time * 0.8 + material.seed);
+            let is_flash = step(0.99, lightning_seed); // Occasional flash
+            let flash_intensity = sin(time * 50.0) * 0.5 + 0.5; // Flicker
+            color += vec3<f32>(0.7, 0.8, 1.0) * is_flash * flash_intensity * cloud_alpha * 2.0 * prox_factor;
+        }
+        
+        // 3. Small Archipelago (Occasional land spots)
+        if (n > 0.85) {
+            let land_alpha = smoothstep(0.85, 0.9, n);
+            let land_col = vec3<f32>(0.2, 0.4, 0.1); // Lush green
+            color = mix(color, land_col, land_alpha);
+        }
+    } else if (material.planet_class == 4u) {
+        // --- DESERT WORLD GENERATION ---
+        let uv = in.uv;
+        let time = mesh_view_bindings::globals.time;
+        
+        // 1. Sand Dunes (Broad patterns)
+        let n = hybrid_sampling(uv, material.seed);
+        let sand_dark = material.base_color.rgb;
+        let sand_light = material.second_color.rgb;
+        color = mix(sand_dark, sand_light, n);
+        
+        // 2. Sand Swirls (Dynamic time-based streaks)
+        let swirl_uv = uv * vec2<f32>(1.5, 8.0) + vec2<f32>(time * 0.02, 0.0);
+        let swirl = textureSample(ridge_map, ridge_sampler, fract(swirl_uv)).r;
+        if (swirl > 0.6) {
+            color = mix(color, sand_light * 1.2, (swirl - 0.6) * 0.4);
+        }
+        
     } else {
         // --- ORGANIC PROCEDURAL GENERATION (Terrestrial/Others) ---
         
@@ -257,6 +305,33 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Add Horizon Glow
     color += horizon_glow;
+    
+    // --- LIFE: BIOLUMINESCENCE (Night Side) ---
+    if (material.planet_class == 2u) {
+        let night_factor = smoothstep(0.1, -0.2, dot(normal, light_dir));
+        if (night_factor > 0.01) {
+            // Aquatic Bio-Patterns
+            let bio_uv = in.uv * 100.0;
+            let bio_noise = textureSample(ridge_map, ridge_sampler, fract(bio_uv)).r;
+            let bio_pulse = sin(time * 1.5 + material.seed) * 0.5 + 0.5;
+            
+            let glow_val = smoothstep(0.7, 0.9, bio_noise) * bio_pulse;
+            let glow_color = vec3<f32>(0.0, 0.8, 1.0); // Cyan Bio-glow
+            
+            color += glow_color * glow_val * night_factor * prox_factor * 3.0;
+        }
+    }
+    
+    // 3. Ocean Glint (Specular)
+    if (material.planet_class == 2u) {
+        let half_vec = normalize(view_dir + light_dir);
+        let NdotH = max(dot(normal, half_vec), 0.0);
+        let glint = pow(NdotH, 64.0) * NdotL; // High power for sharp specular
+        
+        // Only apply where there is no cloud (using simple NdotV as proxy for cloud-free if we had a mask)
+        // For now, just add it.
+        color += vec3<f32>(0.8, 0.9, 1.0) * glint * 0.6 * (1.0 - rim_strength * 0.5);
+    }
     
     // Tone mapping helper: simple Reinhard-ish to keep things in range
     // color = color / (color + vec3<f32>(0.5)); // Optional if still too bright

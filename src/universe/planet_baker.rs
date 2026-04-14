@@ -62,6 +62,7 @@ fn handle_bake_results(
             // Create material with the generated texture
             let material = materials.add(StandardMaterial {
                 base_color_texture: Some(image_handle),
+                unlit: true,
                 ..default()
             });
 
@@ -80,7 +81,7 @@ fn generate_planet_texture(
     seed: f32,
     base_color: LinearRgba,
     second_color: LinearRgba,
-    _planet_type: u32,
+    planet_type: u32,
 ) -> Image {
     const SIZE: usize = 512;
     let mut data = vec![0u8; SIZE * SIZE * 4];
@@ -91,8 +92,14 @@ fn generate_planet_texture(
             let u = x as f32 / SIZE as f32;
             let v = y as f32 / SIZE as f32;
 
-            // Multi-octave noise approximation using sine waves
-            let noise = fbm_noise_2d(u * 8.0 + seed, v * 8.0 + seed);
+            // Multi-octave noise frequency based on type
+            let freq = match planet_type {
+                2 => 12.0, // Ocean (Waves/Cloud clumps)
+                4 => 6.0,  // Desert (Broad dunes)
+                _ => 8.0,  // Default (Terran/Ice)
+            };
+
+            let noise = fbm_noise_2d(u * freq + seed, v * freq + seed);
 
             // Map noise to 0.0-1.0 range
             let t = (noise + 1.0) * 0.5;
@@ -123,19 +130,21 @@ fn generate_planet_texture(
     )
 }
 
-/// Simple 2D FBM noise using sine waves (3 octaves)
+/// Improved 2D FBM noise using layered frequencies for organic continents
 fn fbm_noise_2d(x: f32, y: f32) -> f32 {
     let mut val = 0.0;
-    let mut amp = 1.0;
-    let mut freq = 1.0;
+    
+    // Octave 1: Macro (Continents)
+    val += (x * 0.8).sin() * (y * 0.8).cos() * 1.0;
+    
+    // Octave 2: Mid (Mountains)
+    val += (x * 2.5 + 1.23).sin() * (y * 2.5 + 4.56).cos() * 0.5;
+    
+    // Octave 3: Detail (Ruggedness) - Use a high freq with phase-shifting
+    val += (x * 6.0 + val * 2.0).sin() * (y * 6.0 + 7.89).cos() * 0.25;
 
-    for _ in 0..3 {
-        val += (x * freq).sin() * (y * freq).cos() * amp;
-        freq *= 2.0;
-        amp *= 0.5;
-    }
-
-    val
+    // Normalization and contrast
+    (val * 0.6).clamp(-1.0, 1.0)
 }
 
 #[inline]

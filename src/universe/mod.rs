@@ -93,17 +93,17 @@ impl StarType {
     /// Based on blackbody radiation with game-enhanced saturation
     pub fn get_base_color(&self) -> Color {
         match self {
-            // OBAFGKM Main Sequence
-            StarType::O_BlueGiant => Color::srgb(0.5, 0.6, 1.0), // Electric blue
-            StarType::B_BlueWhite => Color::srgb(0.6, 0.7, 1.0), // Pale blue
-            StarType::A_White => Color::srgb(0.9, 0.95, 1.0),    // Pure white
-            StarType::F_YellowWhite => Color::srgb(1.0, 1.0, 0.9), // Cream
-            StarType::G_YellowDwarf => Color::srgb(1.0, 0.9, 0.6), // Golden yellow (Sun)
-            StarType::K_OrangeDwarf => Color::srgb(1.0, 0.75, 0.5), // Peach orange
-            StarType::M_RedDwarf => Color::srgb(1.0, 0.4, 0.2),  // Deep orange-red
+            // OBAFGKM Main Sequence - Enhanced saturation for visual distinction
+            StarType::O_BlueGiant => Color::srgb(0.15, 0.3, 1.0), // Electric Blue (Adjusted for hot core shader)
+            StarType::B_BlueWhite => Color::srgb(0.4, 0.6, 1.0),  // Pale blue
+            StarType::A_White => Color::srgb(0.9, 0.95, 1.0),     // Pure white (slight blue)
+            StarType::F_YellowWhite => Color::srgb(1.0, 0.95, 0.85), // Cream
+            StarType::G_YellowDwarf => Color::srgb(1.0, 0.85, 0.5), // Golden yellow (Sun)
+            StarType::K_OrangeDwarf => Color::srgb(1.0, 0.55, 0.25), // Deep orange
+            StarType::M_RedDwarf => Color::srgb(1.0, 0.25, 0.1),  // Deep red-orange
             // Exotic
-            StarType::NeutronStar => Color::srgb(0.8, 0.9, 1.0), // Bright blue-white
-            StarType::BlackHole => Color::srgb(0.0, 0.0, 0.0),   // Black (handled specially)
+            StarType::NeutronStar => Color::srgb(0.7, 0.85, 1.0), // Bright blue-white
+            StarType::BlackHole => Color::srgb(0.0, 0.0, 0.0),    // Black (handled specially)
         }
     }
 
@@ -181,17 +181,23 @@ pub enum PlanetType {
     Ice,
     Magma,
     GasGiant,
+    Desert,
+    Ocean,
 }
 
 impl PlanetType {
     pub fn from_seed(seed: f32) -> Self {
         let n = seed.fract();
-        if n < 0.3 {
+        if n < 0.2 {
             PlanetType::Ice
-        } else if n < 0.6 {
+        } else if n < 0.4 {
             PlanetType::GasGiant
-        } else if n < 0.8 {
+        } else if n < 0.55 {
             PlanetType::Terran
+        } else if n < 0.7 {
+            PlanetType::Desert
+        } else if n < 0.85 {
+            PlanetType::Ocean
         } else {
             PlanetType::Magma
         }
@@ -215,6 +221,14 @@ impl PlanetType {
                 LinearRgba::from(Color::srgb(0.8, 0.6, 0.4)),
                 LinearRgba::from(Color::srgb(0.5, 0.3, 0.2)),
             ), // Beige/Brown
+            PlanetType::Desert => (
+                LinearRgba::from(Color::srgb(0.8, 0.5, 0.2)),
+                LinearRgba::from(Color::srgb(0.4, 0.2, 0.1)),
+            ), // Sand/Dust
+            PlanetType::Ocean => (
+                LinearRgba::from(Color::srgb(0.1, 0.3, 0.8)),
+                LinearRgba::from(Color::srgb(0.05, 0.1, 0.4)),
+            ), // Deep Water
         }
     }
 
@@ -224,6 +238,8 @@ impl PlanetType {
             PlanetType::Ice => "Class: Frozen | Atmos: Thin CO2 | Gravity: 0.6g".to_string(),
             PlanetType::Magma => "Class: Volcanic | Atmos: S02 | Gravity: 0.9g".to_string(),
             PlanetType::GasGiant => "Class: Gas Giant | Atmos: H2/He | Gravity: 4.5g".to_string(),
+            PlanetType::Desert => "Class: Arid | Atmos: CO2/Dust | Gravity: 1.1g".to_string(),
+            PlanetType::Ocean => "Class: Oceanic | Atmos: H2O/O2 | Gravity: 0.95g".to_string(),
         }
     }
 
@@ -233,6 +249,8 @@ impl PlanetType {
             PlanetType::Ice => (LinearRgba::from(Color::srgb(0.6, 0.9, 1.0)), 0.6),    // Cyan mist
             PlanetType::Magma => (LinearRgba::from(Color::srgb(1.0, 0.3, 0.0)), 1.2), // Thick Orange/Red
             PlanetType::GasGiant => (LinearRgba::from(Color::srgb(0.7, 0.5, 0.3)), 1.5), // Heavy Beige
+            PlanetType::Desert => (LinearRgba::from(Color::srgb(0.9, 0.6, 0.4)), 0.8), // Dusty Orange
+            PlanetType::Ocean => (LinearRgba::from(Color::srgb(0.7, 0.8, 1.0)), 1.1), // Azure Haze
         }
     }
 }

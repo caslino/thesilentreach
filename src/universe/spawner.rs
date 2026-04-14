@@ -843,14 +843,26 @@ fn spawn_star_with_data(
             let mut rng = StdRng::seed_from_u64(cell_seed);
 
             let num_planets = rng.gen_range(1..=4);
+            let mut desert_ocean_count = 0;
             for _i in 0..num_planets {
-                let dist = rng.gen_range(5000.0..50000.0) + data.size;
+                let mut dist = rng.gen_range(5000.0..50000.0) + data.size;
                 let angle = rng.gen_range(0.0..std::f32::consts::TAU);
                 let planet_size = rng.gen_range(5.0..15.0);
 
                 let planet_seed = dist * 0.123 + angle;
-                let p_type = PlanetType::from_seed(planet_seed);
-                let (_col1, _col2) = p_type.get_palette();
+                let mut p_type = PlanetType::from_seed(planet_seed);
+
+                // Constraint: Near Star for Desert/Ocean, max 1-2 per system
+                if matches!(p_type, PlanetType::Desert | PlanetType::Ocean) {
+                    if desert_ocean_count >= 2 {
+                        // Swap to a different type if we already have 2
+                        p_type = PlanetType::Ice;
+                    } else {
+                        desert_ocean_count += 1;
+                        // Force inner orbit (2,500 to 10,000 range)
+                        dist = rng.gen_range(2500.0..10000.0) + data.size;
+                    }
+                }
 
                 let x = dist * angle.cos();
                 let z = dist * angle.sin();
@@ -888,8 +900,12 @@ fn spawn_star_with_data(
                         second_color: col2,
                         planet_type: if matches!(p_type, PlanetType::GasGiant) {
                             1
+                        } else if matches!(p_type, PlanetType::Ocean) {
+                            2
                         } else if matches!(p_type, PlanetType::Magma) {
                             3
+                        } else if matches!(p_type, PlanetType::Desert) {
+                            4
                         } else {
                             0
                         },
@@ -903,17 +919,23 @@ fn spawn_star_with_data(
                         seed: planet_seed,
                         atmosphere_color: atmos_col,
                         atmosphere_density: atmos_density,
+                        planet_class: if matches!(p_type, PlanetType::GasGiant) {
+                            1
+                        } else if matches!(p_type, PlanetType::Ocean) {
+                            2
+                        } else if matches!(p_type, PlanetType::Magma) {
+                            3
+                        } else if matches!(p_type, PlanetType::Desert) {
+                            4
+                        } else {
+                            0
+                        },
                         crater_map: noise_textures.crater_map.clone(),
                         ridge_map: noise_textures.ridge_map.clone(),
                         sediment_map: noise_textures.sediment_map.clone(),
                         atlas_offset: Vec2::ZERO,
                         atlas_scale: 1.0,
                         use_atlas: 0,
-                        planet_class: if matches!(p_type, PlanetType::GasGiant) {
-                            1
-                        } else {
-                            0
-                        },
                         atlas_texture: atlas.atlas_handle.clone(),
                     })));
                 }

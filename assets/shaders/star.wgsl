@@ -124,7 +124,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let gran_pos = sphere_pos * gran_scale + vec3<f32>(sin(time * gran_speed), cos(time * gran_speed * 0.7), 0.0);
     let vor = voronoi(gran_pos);
     let cell_edge = smoothstep(0.0, 0.15, vor.y - vor.x); // Dark edges between cells
-    let granulation = mix(0.7, 1.0, cell_edge);
     
     // --- 2. TURBULENT PLASMA FLOW ---
     let plasma_speed = 0.15;
@@ -142,46 +141,50 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let hot_spots = smoothstep(0.55, 0.75, hot_noise);
     
     // --- 4. COLOR GRADIENT ---
-    // K-type orange dwarf: bright yellow-orange core, deeper orange-red edges
     let base_color = material.color.rgb;
     
-    // Brighter core color (shift toward yellow)
-    let core_color = base_color + vec3<f32>(0.3, 0.15, 0.0);
-    // Darker edge color (shift toward red-orange)  
-    let edge_color = base_color * vec3<f32>(0.9, 0.6, 0.4);
+    // Core is brighter but preserves hue better
+    let core_color = base_color * 1.8;
+
+    // Edge is significantly darker and richer
+    let edge_color = base_color * 0.2; // Darker edge for limb darkening
     
     // Fresnel for edge detection
     let view_dir = normalize(mesh_view_bindings::view.world_position.xyz - in.world_position.xyz);
     let normal = normalize(in.world_normal);
     let rim = 1.0 - max(dot(view_dir, normal), 0.0);
-    let rim_factor = pow(rim, 1.5);
+    // Increased power for sharper limb darkening
+    let rim_factor = pow(rim, 2.5); 
     
-    // Mix core to edge based on rim and turbulence
-    var surface_color = mix(core_color, edge_color, rim_factor * 0.6);
+    // Mix core to edge
+    var surface_color = mix(core_color, edge_color, rim_factor);
     
-    // Apply granulation (darker between cells)
+    // --- INCREASED CONTRAST FOR TEXTURE ---
+    
+    // Granulation (Cellular structure)
+    // Deeper edges (0.3) for more "cracked" look
+    let granulation = mix(0.3, 1.2, cell_edge);
     surface_color *= granulation;
     
-    // Apply turbulence variation
-    let turb_brightness = 0.85 + turbulence * 0.3;
+    // Turbulence (Plasma flow)
+    let turb_brightness = 0.4 + turbulence * 1.2; 
     surface_color *= turb_brightness;
     
-    // Hot spots add brightness and yellow tint
-    surface_color += hot_spots * vec3<f32>(0.4, 0.2, 0.0);
+    // Hot spots add intense brightness but masked by base_color hue
+    surface_color += hot_spots * base_color * 1.2;
     
     // --- 5. CORONA GLOW ---
-    let corona_power = 4.0;
-    let corona_intensity = pow(rim, corona_power) * 0.8;
-    let corona_color = base_color * 1.2;
+    let corona_intensity = pow(rim, 6.0) * 1.5; // Tighter, brighter corona
+    let corona_color = base_color * 1.5;
     surface_color += corona_color * corona_intensity;
     
-    // --- 6. LIMB DARKENING ---
-    // Real stars are brighter at center, darker at edges
-    let limb_darkening = 1.0 - rim_factor * 0.3;
+    // --- 6. LIMB DARKENING BLEND ---
+    let limb_darkening = 1.0 - pow(rim, 1.5) * 0.6;
     surface_color *= limb_darkening;
     
     // --- 7. HDR OUTPUT ---
-    let intensity = 6.0;
+    // Reduced from 4.5 to 2.8 to prevent white washout
+    let intensity = 2.8;
     
     return vec4<f32>(surface_color * intensity, 1.0);
 }
