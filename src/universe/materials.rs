@@ -30,6 +30,8 @@ pub struct StarMaterial {
     pub flare_speed: f32,
     #[uniform(0)]
     pub flare_intensity: f32,
+    #[uniform(0)]
+    pub flare_height: f32,
     
     // Metadata for runtime sync (not sent to GPU)
     pub star_type: super::StarType,
@@ -40,8 +42,12 @@ impl Material for StarMaterial {
         "shaders/star.wgsl".into()
     }
 
+    fn vertex_shader() -> ShaderRef {
+        "shaders/star.wgsl".into()
+    }
+
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Opaque
+        AlphaMode::Blend
     }
 }
 
@@ -84,6 +90,10 @@ pub struct PlanetMaterial {
 
 impl Material for PlanetMaterial {
     fn fragment_shader() -> ShaderRef {
+        "shaders/planet.wgsl".into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
         "shaders/planet.wgsl".into()
     }
 

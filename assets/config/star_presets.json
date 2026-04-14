@@ -11,7 +11,8 @@
     "intensity": 2.5,
     "flare_scale": 25.0,
     "flare_speed": 0.5,
-    "flare_intensity": 8.0
+    "flare_intensity": 8.0,
+    "flare_height": 0.4
   },
   "B_BlueWhite": {
     "_info": "Very hot, energetic.",
@@ -25,7 +26,8 @@
     "intensity": 2.0,
     "flare_scale": 20.0,
     "flare_speed": 0.3,
-    "flare_intensity": 5.0
+    "flare_intensity": 5.0,
+    "flare_height": 0.3
   },
   "A_White": {
     "_info": "Pure white, stable surface.",
@@ -39,7 +41,8 @@
     "intensity": 1.5,
     "flare_scale": 15.0,
     "flare_speed": 0.2,
-    "flare_intensity": 3.0
+    "flare_intensity": 3.0,
+    "flare_height": 0.25
   },
   "F_YellowWhite": {
     "_info": "Bright, slight turbulence.",
@@ -53,7 +56,8 @@
     "intensity": 1.3,
     "flare_scale": 12.0,
     "flare_speed": 0.15,
-    "flare_intensity": 2.5
+    "flare_intensity": 2.5,
+    "flare_height": 0.2
   },
   "G_YellowDwarf": {
     "_info": "Balanced (Sun-like), organic bubbles.",
@@ -67,7 +71,8 @@
     "intensity": 1.2,
     "flare_scale": 10.0,
     "flare_speed": 0.1,
-    "flare_intensity": 2.0
+    "flare_intensity": 2.0,
+    "flare_height": 0.15
   },
   "K_OrangeDwarf": {
     "_info": "Deep orange, slow convection, high saturation.",
@@ -81,7 +86,8 @@
     "intensity": 1.1,
     "flare_scale": 8.0,
     "flare_speed": 0.08,
-    "flare_intensity": 1.5
+    "flare_intensity": 1.5,
+    "flare_height": 0.12
   },
   "M_RedDwarf": {
     "_info": "Deep red, very slow, dim.",
@@ -90,12 +96,13 @@
     "warp_intensity": 0.09,
     "plasma_speed": 0.02,
     "hot_spot_intensity": 1.1,
-    "corona_intensity": 1.5,
+    "corona_intensity": 0.5,
     "rim_power": 0.5,
     "intensity": 0.9,
-    "flare_scale": 50.0,
-    "flare_speed": 0.5,
-    "flare_intensity": 3.0
+    "flare_scale": 10.0,
+    "flare_speed": 0.05,
+    "flare_intensity": 4.0,
+    "flare_height": 1
   },
   "NeutronStar": {
     "_info": "Extreme energy, violet-white, massive corona.",
@@ -109,6 +116,7 @@
     "intensity": 5.0,
     "flare_scale": 100.0,
     "flare_speed": 4.0,
-    "flare_intensity": 50.0
+    "flare_intensity": 50.0,
+    "flare_height": 0.6
   }
 }

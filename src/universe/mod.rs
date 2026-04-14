@@ -88,6 +88,8 @@ pub struct StarVisuals {
     pub flare_speed: f32,
     /// Brightness of the flare strands
     pub flare_intensity: f32,
+    /// Extra distance flares can reach (multiplier of radius, e.g. 0.5)
+    pub flare_height: f32,
 }
 
 impl Default for StarVisuals {
@@ -104,6 +106,7 @@ impl Default for StarVisuals {
             flare_scale: 15.0,
             flare_speed: 0.1,
             flare_intensity: 2.0,
+            flare_height: 0.2,
         }
     }
 }

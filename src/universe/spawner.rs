@@ -218,7 +218,7 @@ fn manage_galaxy_sectors(
     mut task_tracker: ResMut<SectorTaskTracker>, // Track tasks
     seed: Res<UniverseSeed>,
     db: Res<Database>,
-    q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
+    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame (tracker/db logic handles optimization)
 ) {
     let Ok(camera_cell) = q_camera.get_single() else {
         return;
@@ -352,7 +352,7 @@ fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
+    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
     mut assets: SpawnerAssets,
     db: Res<Database>,
@@ -654,14 +654,13 @@ fn spawn_star_with_data(
             }
             crate::universe::StarType::NeutronStar => {
                 // Neutron Star: Tiny but extremely bright with bloom
+                let visuals = presets.map.get(&format!("{:?}", data.star_type))
+                    .cloned()
+                    .unwrap_or_default();
+
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
                     MeshMaterial3d(star_materials.add({
-                        // Look up visuals from presets
-                        let visuals = presets.map.get(&format!("{:?}", data.star_type))
-                            .cloned()
-                            .unwrap_or_default();
-
                         StarMaterial {
                             color: LinearRgba::from(data.color),
                             seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
@@ -676,6 +675,7 @@ fn spawn_star_with_data(
                             flare_scale: visuals.flare_scale,
                             flare_speed: visuals.flare_speed,
                             flare_intensity: visuals.flare_intensity,
+                            flare_height: visuals.flare_height,
                             star_type: data.star_type,
                         }
                     })),
@@ -688,7 +688,7 @@ fn spawn_star_with_data(
                         size: data.size,
                         planets: None,
                     },
-                    Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
+                    Transform::IDENTITY.with_scale(Vec3::splat(data.size * (1.1 + visuals.flare_height))),
                 ))
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
@@ -722,14 +722,13 @@ fn spawn_star_with_data(
             }
             _ => {
                 // Standard star rendering for OBAFGKM types
+                let visuals = presets.map.get(&format!("{:?}", data.star_type))
+                    .cloned()
+                    .unwrap_or_default();
+
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
                     MeshMaterial3d(star_materials.add({
-                        // Look up visuals from presets
-                        let visuals = presets.map.get(&format!("{:?}", data.star_type))
-                            .cloned()
-                            .unwrap_or_default();
-
                         StarMaterial {
                             color: LinearRgba::from(data.color),
                             seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
@@ -744,6 +743,7 @@ fn spawn_star_with_data(
                             flare_scale: visuals.flare_scale,
                             flare_speed: visuals.flare_speed,
                             flare_intensity: visuals.flare_intensity,
+                            flare_height: visuals.flare_height,
                             star_type: data.star_type,
                         }
                     })),
@@ -756,7 +756,7 @@ fn spawn_star_with_data(
                         size: data.size,
                         planets: None,
                     },
-                    Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
+                    Transform::IDENTITY.with_scale(Vec3::splat(data.size * (1.1 + visuals.flare_height))),
                 ))
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
