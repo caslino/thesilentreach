@@ -133,13 +133,13 @@ fn generate_planet_texture(
 /// Improved 2D FBM noise using layered frequencies for organic continents
 fn fbm_noise_2d(x: f32, y: f32) -> f32 {
     let mut val = 0.0;
-    
+
     // Octave 1: Macro (Continents)
     val += (x * 0.8).sin() * (y * 0.8).cos() * 1.0;
-    
+
     // Octave 2: Mid (Mountains)
     val += (x * 2.5 + 1.23).sin() * (y * 2.5 + 4.56).cos() * 0.5;
-    
+
     // Octave 3: Detail (Ruggedness) - Use a high freq with phase-shifting
     val += (x * 6.0 + val * 2.0).sin() * (y * 6.0 + 7.89).cos() * 0.25;
 

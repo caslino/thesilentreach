@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::player::camera::ZenCamera;
+use bevy::prelude::*;
 
 pub struct CockpitPlugin;
 
@@ -14,7 +14,7 @@ struct CockpitFrame;
 
 fn spawn_cockpit_structure(
     mut commands: Commands,
-    q_camera: Query<Entity, With<ZenCamera>>, 
+    q_camera: Query<Entity, With<ZenCamera>>,
     q_children: Query<&Children>,
     q_frame: Query<&CockpitFrame>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -42,36 +42,34 @@ fn spawn_cockpit_structure(
 
             commands.entity(camera_entity).with_children(|parent| {
                 // Main Frame
-                parent.spawn((
-                    Transform::default(),
-                    Visibility::default(),
-                    CockpitFrame,
-                )).with_children(|frame| {
-                    // Top Bar
-                    frame.spawn((
-                        Mesh3d(meshes.add(Cuboid::new(2.0, 0.1, 0.1))),
-                        MeshMaterial3d(cockpit_mat.clone()),
-                        Transform::from_xyz(0.0, 0.8, -1.0),
-                    ));
-                    // Bottom Bar
-                    frame.spawn((
-                        Mesh3d(meshes.add(Cuboid::new(2.0, 0.2, 0.2))),
-                        MeshMaterial3d(cockpit_mat.clone()),
-                        Transform::from_xyz(0.0, -0.8, -1.0),
-                    ));
-                    // Left Pillar
-                    frame.spawn((
-                        Mesh3d(meshes.add(Cuboid::new(0.1, 1.6, 0.1))),
-                        MeshMaterial3d(cockpit_mat.clone()),
-                        Transform::from_xyz(-1.0, 0.0, -1.0),
-                    ));
-                    // Right Pillar
-                    frame.spawn((
-                        Mesh3d(meshes.add(Cuboid::new(0.1, 1.6, 0.1))),
-                        MeshMaterial3d(cockpit_mat.clone()),
-                        Transform::from_xyz(1.0, 0.0, -1.0),
-                    ));
-                });
+                parent
+                    .spawn((Transform::default(), Visibility::default(), CockpitFrame))
+                    .with_children(|frame| {
+                        // Top Bar
+                        frame.spawn((
+                            Mesh3d(meshes.add(Cuboid::new(2.0, 0.1, 0.1))),
+                            MeshMaterial3d(cockpit_mat.clone()),
+                            Transform::from_xyz(0.0, 0.8, -1.0),
+                        ));
+                        // Bottom Bar
+                        frame.spawn((
+                            Mesh3d(meshes.add(Cuboid::new(2.0, 0.2, 0.2))),
+                            MeshMaterial3d(cockpit_mat.clone()),
+                            Transform::from_xyz(0.0, -0.8, -1.0),
+                        ));
+                        // Left Pillar
+                        frame.spawn((
+                            Mesh3d(meshes.add(Cuboid::new(0.1, 1.6, 0.1))),
+                            MeshMaterial3d(cockpit_mat.clone()),
+                            Transform::from_xyz(-1.0, 0.0, -1.0),
+                        ));
+                        // Right Pillar
+                        frame.spawn((
+                            Mesh3d(meshes.add(Cuboid::new(0.1, 1.6, 0.1))),
+                            MeshMaterial3d(cockpit_mat.clone()),
+                            Transform::from_xyz(1.0, 0.0, -1.0),
+                        ));
+                    });
             });
         }
     }

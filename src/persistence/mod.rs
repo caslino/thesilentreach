@@ -71,17 +71,20 @@ fn load_player_state(
 ) {
     if config.force_origin || config.star_override.is_some() {
         spawn_loc.cell = GridCell::new(0, 0, 0);
-        
+
         // Default to origin
         let mut local_pos = Vec3::ZERO;
-        
+
         if let Some(star_type) = config.star_override {
             // Get star size to position player outside it
             let (_, max_size) = star_type.get_size_range();
             // Position at 3x radius for a good view, with a minimum floor for tiny stars
             let spawn_dist = (max_size * 3.0).max(50.0);
             local_pos = Vec3::new(0.0, 0.0, spawn_dist);
-            info!("PERSISTENCE: Star Override ({:?}). Spawning at distance {:.2}", star_type, local_pos.z);
+            info!(
+                "PERSISTENCE: Star Override ({:?}). Spawning at distance {:.2}",
+                star_type, local_pos.z
+            );
         } else if let Some(planet_type) = config.planet_override {
             // Force origin spawn near a planet
             // Star size is usually 50-100. Planets are further out.
@@ -90,7 +93,10 @@ fn load_player_state(
             // In the "Dummy" system, the first planet is at distance 0 (Jupiter logic).
             // Let's spawn at a distance that works for most planets (~150-300 range)
             local_pos = Vec3::new(0.0, 0.0, 400.0);
-            info!("PERSISTENCE: Planet Override ({:?}). Spawning at distance 400.0", planet_type);
+            info!(
+                "PERSISTENCE: Planet Override ({:?}). Spawning at distance 400.0",
+                planet_type
+            );
         } else {
             info!("PERSISTENCE: Force Origin requested. Spawning at (0,0,0).");
         }

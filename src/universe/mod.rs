@@ -51,7 +51,6 @@ pub struct Mass(pub f32);
 #[derive(Component)]
 pub struct Radius(pub f32);
 
-
 #[derive(Component)]
 pub struct Star;
 
@@ -144,7 +143,7 @@ pub struct StarfieldVisuals {
     pub nebula_speed: f32,
     /// Primary nebula gaseous color
     pub nebula_color_a: Color,
-    /// Secondary nebula gaseous color 
+    /// Secondary nebula gaseous color
     pub nebula_color_b: Color,
 }
 
@@ -182,7 +181,7 @@ pub struct PlanetVisuals {
     pub rim_intensity: f32,
     /// Sharpness of the atmospheric rim glow
     pub rim_power: f32,
-    /// Overall atmospheric haze intensity 
+    /// Overall atmospheric haze intensity
     pub haze_intensity: f32,
     /// Global cloud threshold (lower = more clouds)
     pub cloud_threshold: f32,
@@ -421,7 +420,7 @@ impl PlanetType {
             PlanetType::Magma => (LinearRgba::from(Color::srgb(1.0, 0.3, 0.0)), 1.2), // Thick Orange/Red
             PlanetType::GasGiant => (LinearRgba::from(Color::srgb(0.7, 0.5, 0.3)), 1.5), // Heavy Beige
             PlanetType::Desert => (LinearRgba::from(Color::srgb(0.9, 0.6, 0.4)), 0.8), // Dusty Orange
-            PlanetType::Ocean => (LinearRgba::from(Color::srgb(0.7, 0.8, 1.0)), 1.1), // Azure Haze
+            PlanetType::Ocean => (LinearRgba::from(Color::srgb(0.7, 0.8, 1.0)), 1.1),  // Azure Haze
         }
     }
 

@@ -1,8 +1,8 @@
+use crate::universe::UniverseSeed;
 use bevy::prelude::*;
 use big_space::GridCell;
-use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
-use crate::universe::UniverseSeed;
+use rand::{Rng, SeedableRng};
 
 #[derive(Clone, Debug)]
 pub struct Pulsar {
@@ -20,14 +20,11 @@ pub struct PulsarPlugin;
 impl Plugin for PulsarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PulsarMap>()
-           .add_systems(Startup, generate_pulsars);
+            .add_systems(Startup, generate_pulsars);
     }
 }
 
-fn generate_pulsars(
-    seed: Res<UniverseSeed>,
-    mut pulsar_map: ResMut<PulsarMap>,
-) {
+fn generate_pulsars(seed: Res<UniverseSeed>, mut pulsar_map: ResMut<PulsarMap>) {
     let mut rng = StdRng::seed_from_u64(seed.0);
 
     // Generate a fixed number of pulsars scattered in a large volume

@@ -1,13 +1,13 @@
-use bevy::prelude::*;
-use big_space::{GridCell, FloatingOrigin};
 use crate::universe::pulsar::PulsarMap;
+use bevy::prelude::*;
+use big_space::{FloatingOrigin, GridCell};
 
 pub struct NavigationPlugin;
 
 impl Plugin for NavigationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NavigationClues>()
-           .add_systems(Update, update_navigation_clues);
+            .add_systems(Update, update_navigation_clues);
     }
 }
 
@@ -22,7 +22,9 @@ fn update_navigation_clues(
     mut clues: ResMut<NavigationClues>,
     pulsar_map: Res<PulsarMap>,
 ) {
-    let Ok(current_cell) = q_camera.get_single() else { return; };
+    let Ok(current_cell) = q_camera.get_single() else {
+        return;
+    };
 
     // 1. Core Heading (Vector to 0,0,0)
     // Since we are far away, the direction is roughly -current_cell
@@ -31,8 +33,9 @@ fn update_navigation_clues(
         -current_cell.x as f32,
         -current_cell.y as f32,
         -current_cell.z as f32,
-    ).normalize_or_zero();
-    
+    )
+    .normalize_or_zero();
+
     clues.vector_to_origin = dir_to_origin;
 
     // 2. Pulsar Signals
@@ -41,8 +44,8 @@ fn update_navigation_clues(
         let dx = (current_cell.x - pulsar.position.x) as f32;
         let dy = (current_cell.y - pulsar.position.y) as f32;
         let dz = (current_cell.z - pulsar.position.z) as f32;
-        let dist_sq = dx*dx + dy*dy + dz*dz;
-        
+        let dist_sq = dx * dx + dy * dy + dz * dz;
+
         let strength = 1.0 / (1.0 + dist_sq.sqrt() * 0.0001); // Fake signal dropoff
         clues.pulsar_signals.push((strength, pulsar.frequency));
     }

@@ -40,6 +40,9 @@ fn main() {
     } else if args.contains(&"video".to_string()) {
         println!("MODE: VIDEO (1920x1080) 🎥");
         (1920.0, 1080.0, "recordings/videos".to_string(), 2.0) // Very slow blink for video
+    } else if args.contains(&"linkedin".to_string()) {
+        println!("MODE: LINKEDIN (1080x1350) 👔");
+        (1080.0, 1350.0, "recordings/linkedin".to_string(), 1.5) // Medium blink
     } else {
         (450.0, 850.0, ".".to_string(), 0.5) // Default
     };

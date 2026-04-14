@@ -56,6 +56,7 @@ Customize the experience with command-line arguments:
 |----------|-------------|---------|
 | `--procedural` | Enable high-detail procedural shaders for stars and planets. | `cargo run --release -- --procedural` |
 | `--star <type>` | Teleport to a specific star type at the origin for rendering inspection. | `cargo run --release -- --star NeutronStar` |
+| `--planet <type>` | Teleport to a specific planet type at the origin for rendering inspection. | `cargo run --release -- --planet GasGiant` |
 | `--scenario <name>`| Load a specific scenario (e.g., `jupiter`, `our_system`, `milky_way`). | `cargo run --release -- --scenario jupiter` |
 | `--origin` | Force the player to spawn at the coordinate origin `(0,0,0)`. | `cargo run --release -- --origin` |
 | `video` | Set resolution to 1920x1080 (16:9) for landscape capture. | `cargo run --release -- video` |
@@ -72,6 +73,15 @@ Use these with the `--star` parameter:
 - `M_RedDwarf` (Cool red-orange, most common)
 - `NeutronStar` (Tiny, extreme brightness, violet-white)
 - `BlackHole` (Gravitational singularity, black core)
+
+#### Available Planet Types
+Use these with the `--planet` parameter:
+- `Terran` (Earth-like with life/water)
+- `Ice` (Cold, high albedo, heavy clouds)
+- `Magma` (Volcanic, glowing surface, thick haze)
+- `GasGiant` (Massive, dense clouds, low rim power)
+- `Desert` (Arid, sweeping winds, high dust/haze)
+- `Ocean` (Water world, high specular shine)
 
 ### Black Hole Simulation
 A separate binary is available for the black hole simulation:

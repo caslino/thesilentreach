@@ -13,7 +13,15 @@ impl Plugin for RecorderPlugin {
         app.init_resource::<RecordingState>()
             .init_resource::<RecordingDirectory>()
             .init_resource::<RecordingBlinkDuration>()
-            .add_systems(Update, (toggle_recording, capture_frame, blink_indicator));
+            .add_systems(
+                Update,
+                (
+                    toggle_recording,
+                    capture_frame,
+                    blink_indicator,
+                    cleanup_recording_message,
+                ),
+            );
     }
 }
 
@@ -82,6 +90,9 @@ fn toggle_recording(
                     top: Val::Px(10.0),
                     right: Val::Px(10.0),
                     ..default()
+                },
+                RecordingSavedMessage {
+                    timer: Timer::from_seconds(5.0, TimerMode::Once),
                 },
             ));
 
@@ -263,4 +274,22 @@ fn encode_video(output_dir: String, width: u32, height: u32, rx: Receiver<(Vec<u
 
     let status = child.wait();
     info!("Recording saved: {:?} (Status: {:?})", output_file, status);
+}
+
+#[derive(Component)]
+struct RecordingSavedMessage {
+    timer: Timer,
+}
+
+fn cleanup_recording_message(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut RecordingSavedMessage)>,
+) {
+    for (entity, mut message) in query.iter_mut() {
+        message.timer.tick(time.delta());
+        if message.timer.finished() {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
 }

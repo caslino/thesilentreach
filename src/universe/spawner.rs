@@ -4,14 +4,15 @@ use crate::universe::RenderMode;
 use crate::universe::gpu_star_renderer::StarSector;
 use crate::universe::materials::{PlanetMaterial, StarMaterial};
 use crate::universe::{
-    Mass, Planet, PlanetDetails, PlanetType, Radius, SECTOR_SIZE, SectorIndex, Star, StarDetails,
-    UniverseSeed, StarPresets, StarVisuals, PlanetPresets, PlanetVisuals,
+    Mass, Planet, PlanetDetails, PlanetPresets, PlanetType, PlanetVisuals, Radius, SECTOR_SIZE,
+    SectorIndex, Star, StarDetails, StarPresets, StarVisuals, UniverseSeed,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use big_space::{FloatingOrigin, GridCell, ReferenceFrame};
 
 // use crate::universe::physics::GRID_SIZE; // Unused
+use bevy::ecs::system::SystemParam;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use futures_lite::future;
 use rand::rngs::StdRng;
@@ -19,7 +20,6 @@ use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use bevy::ecs::system::SystemParam;
 
 pub struct StarSystemSpawnerPlugin;
 
@@ -38,7 +38,7 @@ impl Plugin for StarSystemSpawnerPlugin {
                 (
                     manage_galaxy_sectors,
                     handle_generation_tasks,
-                    sync_star_presets, // Live Tuning System
+                    sync_star_presets,   // Live Tuning System
                     sync_planet_presets, // Live Tuning System (Planets)
                     sync_universe_view,
                     update_lod_scaling,
@@ -63,7 +63,10 @@ fn load_star_presets_from_disk() -> StarPresets {
                     presets.map.insert(key.clone(), visuals);
                 }
             }
-            info!("STAR CONFIG: Eagerly loaded {} presets from JSON.", presets.map.len());
+            info!(
+                "STAR CONFIG: Eagerly loaded {} presets from JSON.",
+                presets.map.len()
+            );
         }
     }
     presets
@@ -77,7 +80,8 @@ fn sync_star_presets(
     mut last_sync: Local<f32>,
     mut q_stars: Query<(&mut Transform, &StarDetails)>,
 ) {
-    if time.elapsed_secs() - *last_sync < 1.0 { // Throttle disc read
+    if time.elapsed_secs() - *last_sync < 1.0 {
+        // Throttle disc read
         return;
     }
     *last_sync = time.elapsed_secs();
@@ -92,8 +96,12 @@ fn sync_star_presets(
                     continue; // Skip metadata entries like _help
                 }
                 match serde_json::from_value::<StarVisuals>(value.clone()) {
-                    Ok(visuals) => { new_map.insert(key.clone(), visuals); }
-                    Err(e) => { warn!("STAR CONFIG: Failed to parse '{}': {}", key, e); }
+                    Ok(visuals) => {
+                        new_map.insert(key.clone(), visuals);
+                    }
+                    Err(e) => {
+                        warn!("STAR CONFIG: Failed to parse '{}': {}", key, e);
+                    }
                 }
             }
 
@@ -101,12 +109,13 @@ fn sync_star_presets(
             if new_map != presets.map {
                 presets.map = new_map;
                 info!("STAR CONFIG: Reloaded presets from JSON.");
-                
+
                 // 1. Update the Material Asset cache
                 for (_, material) in star_materials.iter_mut() {
                     let type_key = format!("{:?}", material.star_type);
                     if let Some(v) = presets.map.get(&type_key) {
-                        material.color = LinearRgba::new(v.color[0], v.color[1], v.color[2], v.color[3]);
+                        material.color =
+                            LinearRgba::new(v.color[0], v.color[1], v.color[2], v.color[3]);
                         material.seed = v.seed;
                         material.convection_scale = v.convection_scale;
                         material.convection_speed = v.convection_speed;
@@ -145,7 +154,8 @@ fn sync_planet_presets(
     time: Res<Time>,
     mut last_sync: Local<f32>,
 ) {
-    if time.elapsed_secs() - *last_sync < 1.0 { // Throttle disc read
+    if time.elapsed_secs() - *last_sync < 1.0 {
+        // Throttle disc read
         return;
     }
     *last_sync = time.elapsed_secs();
@@ -157,7 +167,7 @@ fn sync_planet_presets(
             if new_map != presets.map {
                 presets.map = new_map;
                 info!("PLANET CONFIG: Reloaded presets from JSON.");
-                
+
                 // Update the Material Asset cache
                 for (_, material) in planet_materials.iter_mut() {
                     let type_key = format!("{:?}", material.planet_type);
@@ -340,7 +350,13 @@ fn manage_galaxy_sectors(
                     let db_for_task = db_clone.clone();
 
                     let task = thread_pool.spawn(async move {
-                        let data = generate_sector_data(sector_idx, seed_val, &db_for_task, star_override, planet_override);
+                        let data = generate_sector_data(
+                            sector_idx,
+                            seed_val,
+                            &db_for_task,
+                            star_override,
+                            planet_override,
+                        );
                         (sector_idx, data)
                     });
                     task_tracker.tasks.insert(sector_idx, task);
@@ -383,7 +399,10 @@ fn generate_sector_data(
 
     // 1. Check Database (Skip if override active at origin)
     if is_origin_sector && has_override {
-        info!("PERSISTENCE: Override active ({:?}/{:?}). Bypassing DB for origin sector.", star_override, planet_override);
+        info!(
+            "PERSISTENCE: Override active ({:?}/{:?}). Bypassing DB for origin sector.",
+            star_override, planet_override
+        );
     } else {
         match db.get_sector_data(sector) {
             Ok(Some(data)) => {
@@ -427,16 +446,16 @@ fn generate_sector_data(
                     crate::universe::star_common::get_star_data(x, y, z, seed.0)
                 {
                     let mut planets = None;
-                    
+
                     // Apply override if at origin
                     if x == 0 && y == 0 && z == 0 {
                         if let Some(over) = star_override {
                             star_type = over;
                         }
-                        
+
                         // If planet_override set, ensure we have a planet to override in spawn_star_with_data
                         if let Some(p_over) = planet_override {
-                             planets = Some(vec![crate::universe::DetailedPlanet {
+                            planets = Some(vec![crate::universe::DetailedPlanet {
                                 name: "Override Core".to_string(),
                                 planet_type: p_over,
                                 distance: 0.0, // Or fallback distance
@@ -969,7 +988,7 @@ fn spawn_star_with_data(
         commands.entity(system_root).with_children(|root| {
             for (p_idx, planet_data) in planets.iter().enumerate() {
                 let mut p_type = planet_data.planet_type;
-                
+
                 // Apply CLI Override if at origin (overrides first planet)
                 if cell.x == 0 && cell.y == 0 && cell.z == 0 && p_idx == 0 {
                     if let Some(over) = config.planet_override {
@@ -1021,7 +1040,9 @@ fn spawn_star_with_data(
                         },
                     });
                 } else {
-                    let visuals = planet_presets.map.get(&format!("{:?}", p_type))
+                    let visuals = planet_presets
+                        .map
+                        .get(&format!("{:?}", p_type))
                         .cloned()
                         .unwrap_or_default();
 
@@ -1167,7 +1188,9 @@ fn spawn_star_with_data(
                     // Note: We don't add MeshMaterial3d here, the Baker does it!
                 } else {
                     // Legacy Procedural Material (Shader per pixel)
-                    let visuals = planet_presets.map.get(&format!("{:?}", p_type))
+                    let visuals = planet_presets
+                        .map
+                        .get(&format!("{:?}", p_type))
                         .cloned()
                         .unwrap_or_default();
 

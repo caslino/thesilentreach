@@ -1,10 +1,10 @@
-use rusqlite::{Connection, Result, params};
-use big_space::GridCell;
-use std::sync::{Arc, Mutex};
-use bevy::prelude::*;
 use crate::universe::{SectorIndex, StarDetails};
-use serde::{Serialize, Deserialize};
+use bevy::prelude::*;
+use big_space::GridCell;
+use rusqlite::{Connection, Result, params};
+use serde::{Deserialize, Serialize};
 use serde_json;
+use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Deserialize)]
 struct SavedStar {
@@ -27,7 +27,7 @@ pub struct DiscoveredWorld {
 }
 
 // ... (Existing DiscoveredWorld and imports)
- // Ensure Vec3 is available
+// Ensure Vec3 is available
 
 #[derive(Debug, Clone)]
 pub struct PlayerState {
@@ -40,7 +40,7 @@ pub struct PlayerState {
     pub vel_x: f32,
     pub vel_y: f32,
     pub vel_z: f32,
-    pub timestamp: i64, 
+    pub timestamp: i64,
     pub throttle: f32, // Added throttle
 }
 
@@ -53,7 +53,7 @@ pub struct Database {
 impl Database {
     pub fn open() -> Result<Self> {
         let conn = Connection::open("universe.db")?;
-        
+
         // Execute schema creation in a batch
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS discoveries (
@@ -97,7 +97,10 @@ impl Database {
 
         // Migration: Add throttle column if it doesn't exist (for existing DBs)
         // We just try to add it and ignore error if it exists
-        let _ = conn.execute("ALTER TABLE player_state ADD COLUMN throttle REAL DEFAULT 0.0", []);
+        let _ = conn.execute(
+            "ALTER TABLE player_state ADD COLUMN throttle REAL DEFAULT 0.0",
+            [],
+        );
 
         Ok(Database {
             conn: Arc::new(Mutex::new(conn)),
@@ -121,7 +124,7 @@ impl Database {
         }
 
         let sector = SectorIndex { x: 0, y: 0, z: 0 };
-        
+
         // Check if sector is already in DB
         if let Some(_) = self.get_sector_data(sector)? {
             info!("PERSISTENCE: Sector (0,0,0) already seeded. Skipping predefined system.");
@@ -136,49 +139,62 @@ impl Database {
         Ok(())
     }
 
+    pub fn save_sector_data(
+        &self,
+        sector: SectorIndex,
+        data: &Vec<(GridCell<i64>, StarDetails)>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
 
-    pub fn save_sector_data(&self, sector: SectorIndex, data: &Vec<(GridCell<i64>, StarDetails)>) -> Result<()> {
-         let conn = self.conn.lock().unwrap();
-         
-         // Convert to Serializable format
-         let saved_data: Vec<SavedStar> = data.iter().map(|(cell, details)| SavedStar {
-             x: cell.x,
-             y: cell.y,
-             z: cell.z,
-             details: details.clone(),
-         }).collect();
+        // Convert to Serializable format
+        let saved_data: Vec<SavedStar> = data
+            .iter()
+            .map(|(cell, details)| SavedStar {
+                x: cell.x,
+                y: cell.y,
+                z: cell.z,
+                details: details.clone(),
+            })
+            .collect();
 
-         // Serialize data
-         let json_data = serde_json::to_string(&saved_data).unwrap_or_default();
-         
-         conn.execute(
-             "INSERT OR REPLACE INTO sectors (x, y, z, data) VALUES (?1, ?2, ?3, ?4)",
-             params![sector.x, sector.y, sector.z, json_data],
-         )?;
-         Ok(())
+        // Serialize data
+        let json_data = serde_json::to_string(&saved_data).unwrap_or_default();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO sectors (x, y, z, data) VALUES (?1, ?2, ?3, ?4)",
+            params![sector.x, sector.y, sector.z, json_data],
+        )?;
+        Ok(())
     }
 
-    pub fn get_sector_data(&self, sector: SectorIndex) -> Result<Option<Vec<(GridCell<i64>, StarDetails)>>> {
+    pub fn get_sector_data(
+        &self,
+        sector: SectorIndex,
+    ) -> Result<Option<Vec<(GridCell<i64>, StarDetails)>>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT data FROM sectors WHERE x = ?1 AND y = ?2 AND z = ?3")?;
-        
+        let mut stmt =
+            conn.prepare("SELECT data FROM sectors WHERE x = ?1 AND y = ?2 AND z = ?3")?;
+
         let mut rows = stmt.query(params![sector.x, sector.y, sector.z])?;
-        
+
         if let Some(row) = rows.next()? {
             let json_data: String = row.get(0)?;
             match serde_json::from_str::<Vec<SavedStar>>(&json_data) {
                 Ok(saved_data) => {
                     // Convert back
-                    let data = saved_data.into_iter().map(|s| (
-                        GridCell::new(s.x, s.y, s.z),
-                        s.details
-                    )).collect();
+                    let data = saved_data
+                        .into_iter()
+                        .map(|s| (GridCell::new(s.x, s.y, s.z), s.details))
+                        .collect();
                     return Ok(Some(data));
-                },
+                }
                 Err(e) => {
-                    error!("PERSISTENCE: JSON Deserialization Error for Sector {:?}: {}", sector, e);
+                    error!(
+                        "PERSISTENCE: JSON Deserialization Error for Sector {:?}: {}",
+                        sector, e
+                    );
                     // Return error to prevent overwriting corrupt data with empty data
-                    return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(e))); 
+                    return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(e)));
                 }
             }
         }
@@ -201,7 +217,7 @@ impl Database {
     pub fn get_player_state(&self) -> Result<Option<PlayerState>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT cell_x, cell_y, cell_z, local_x, local_y, local_z, vel_x, vel_y, vel_z, timestamp, throttle FROM player_state WHERE id = 1")?;
-        
+
         let mut rows = stmt.query([])?;
         if let Some(row) = rows.next()? {
             Ok(Some(PlayerState {
@@ -238,9 +254,9 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT cell_x, cell_y, cell_z, name, finder, note, date, object_type 
              FROM discoveries 
-             WHERE cell_x = ?1 AND cell_y = ?2 AND cell_z = ?3"
+             WHERE cell_x = ?1 AND cell_y = ?2 AND cell_z = ?3",
         )?;
-        
+
         let mut rows = stmt.query(params![cell.x, cell.y, cell.z])?;
 
         if let Some(row) = rows.next()? {
@@ -262,7 +278,7 @@ impl Database {
     pub fn get_all_discoveries(&self) -> Result<Vec<DiscoveredWorld>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT cell_x, cell_y, cell_z, name, finder, note, date, object_type FROM discoveries"
+            "SELECT cell_x, cell_y, cell_z, name, finder, note, date, object_type FROM discoveries",
         )?;
 
         let discovery_iter = stmt.query_map([], |row| {

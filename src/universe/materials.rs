@@ -40,7 +40,7 @@ pub struct StarMaterial {
     pub _pad1: u32,
     #[uniform(0)]
     pub _pad2: u32,
-    
+
     // Metadata for runtime sync (not sent to GPU)
     pub star_type: super::StarType,
 }

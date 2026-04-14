@@ -1,22 +1,22 @@
+use crate::universe::physics::GRID_SIZE;
+use crate::universe::{SECTOR_SIZE, SectorIndex};
 use bevy::{
+    core_pipeline::core_3d::graph::Core3d,
+    ecs::query::QueryItem,
+    ecs::system::SystemParamItem,
+    pbr::{MeshPipeline, MeshViewBindGroup, SetMeshViewBindGroup},
     prelude::*,
-    render::{
-        render_resource::*,
-        renderer::{RenderContext, RenderDevice, RenderQueue},
-        Render, RenderApp, RenderSet,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_graph::{RenderGraph, RenderGraphContext, Node, NodeRunError, RenderLabel},
-    },
     render::render_phase::{RenderCommandResult, TrackedRenderPass, ViewSortedRenderPhases},
     render::sync_world::MainEntity,
     render::view::ExtractedView,
-    core_pipeline::core_3d::graph::Core3d,
-    ecs::system::SystemParamItem,
-    ecs::query::QueryItem,
-    pbr::{MeshViewBindGroup, MeshPipeline, SetMeshViewBindGroup},
+    render::{
+        Render, RenderApp, RenderSet,
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
+        render_resource::*,
+        renderer::{RenderContext, RenderDevice, RenderQueue},
+    },
 };
-use crate::universe::{SectorIndex, SECTOR_SIZE};
-use crate::universe::physics::GRID_SIZE;
 use bytemuck::{Pod, Zeroable};
 
 pub struct GPUStarPlugin;
@@ -28,7 +28,7 @@ impl Plugin for GPUStarPlugin {
 
     fn finish(&self, app: &mut App) {
         let render_app = app.sub_app_mut(RenderApp);
-        
+
         render_app
             .init_resource::<StarComputePipeline>()
             .init_resource::<StarRenderPipeline>()
@@ -37,23 +37,24 @@ impl Plugin for GPUStarPlugin {
             .add_systems(Render, queue_star_bind_group.in_set(RenderSet::Queue))
             .add_systems(Render, clear_stars_to_compute.in_set(RenderSet::Cleanup))
             .add_render_command::<Transparent3d, DrawStarSector>();
-            
+
         let node = StarComputeNode::from_world(render_app.world_mut());
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
-        
+
         if let Some(graph_3d) = graph.get_sub_graph_mut(Core3d) {
             graph_3d.add_node(StarComputeLabel, node);
-            graph_3d.add_node_edge(StarComputeLabel, bevy::core_pipeline::core_3d::graph::Node3d::StartMainPass);
+            graph_3d.add_node_edge(
+                StarComputeLabel,
+                bevy::core_pipeline::core_3d::graph::Node3d::StartMainPass,
+            );
         }
     }
 }
-
 
 #[derive(Resource, Default)]
 struct StarsToCompute {
     entities: Vec<Entity>,
 }
-
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct StarComputeLabel;
@@ -97,7 +98,6 @@ pub struct ExtractedStarSector {
     pub global_transform: GlobalTransform,
 }
 
-
 // --- GPU Data Structures ---
 
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -110,8 +110,8 @@ struct ComputeInputs {
     universe_seed: u32,
     sector_size: u32,
     grid_size: f32,
-    pad1: u32, // align to 16 bytes? struct size 32 bytes (8 u32s). 
-    // i32,i32,i32,u32 = 16. u32,u32,f32,u32 = 16. Total 32. Aligned.
+    pad1: u32, // align to 16 bytes? struct size 32 bytes (8 u32s).
+               // i32,i32,i32,u32 = 16. u32,u32,f32,u32 = 16. Total 32. Aligned.
 }
 
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -119,7 +119,7 @@ struct ComputeInputs {
 struct StarData {
     pos: [f32; 3], // vec3
     // padding required? vec3 usually aligns to 16 bytes in arrays if using std140?
-    // In "storage" buffer (std430), dense packing is allowed for float arrays, 
+    // In "storage" buffer (std430), dense packing is allowed for float arrays,
     // but structs usually align to 16 bytes.
     // Our struct in shader: vec3, vec3, f32.
     // vec3 (12) + 4 pad? OR vec3 (12) + vec3 (12) + f32 (4) = 28. + 4 pad = 32.
@@ -129,27 +129,29 @@ struct StarData {
     pad1: f32,
     size: f32,
     pad2: [f32; 3], // Pad to... wait.
-    // vec3 is 16-byte aligned in WGSL usually.
-    // struct Star { pos: vec3, color: vec3, size: f32 }
-    // Offset 0: pos
-    // Offset 16: color
-    // Offset 32: size
-    // Size 48?
+                    // vec3 is 16-byte aligned in WGSL usually.
+                    // struct Star { pos: vec3, color: vec3, size: f32 }
+                    // Offset 0: pos
+                    // Offset 16: color
+                    // Offset 32: size
+                    // Size 48?
 }
 // Actually, let's use manual packing 4 floats + 4 floats
 #[derive(Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 struct StarPacked {
-    pos_x: f32, pos_y: f32, pos_z: f32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
     color_r: f32, // pack color R here? No.
-    // Let's rely on Shader align.
-    // Use [f32; 4] for vectors?
-    // struct Star { pos: vec3, color: vec3, size: f32 }
-    // If we use `var<storage>`, it is tightly packed? No, default is std430 but alignments apply.
-    // Simple:
-    // pos: vec4 (x,y,z,pad)
-    // color: vec4 (r,g,b,size)
-    // Total 32 bytes.
+                  // Let's rely on Shader align.
+                  // Use [f32; 4] for vectors?
+                  // struct Star { pos: vec3, color: vec3, size: f32 }
+                  // If we use `var<storage>`, it is tightly packed? No, default is std430 but alignments apply.
+                  // Simple:
+                  // pos: vec4 (x,y,z,pad)
+                  // color: vec4 (r,g,b,size)
+                  // Total 32 bytes.
 }
 // Update Shader to:
 // struct Star { pos_pad: vec4<f32>, color_size: vec4<f32> }
@@ -170,29 +172,46 @@ impl FromWorld for StarComputePipeline {
         let layout = render_device.create_bind_group_layout(
             Some("star_compute_layout"),
             &[
-                BindGroupLayoutEntry { // Uniforms
+                BindGroupLayoutEntry {
+                    // Uniforms
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
-                BindGroupLayoutEntry { // Stars Buffer
+                BindGroupLayoutEntry {
+                    // Stars Buffer
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
-                BindGroupLayoutEntry { // Indirect Buffer
+                BindGroupLayoutEntry {
+                    // Indirect Buffer
                     binding: 2,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, // Atomic? Storage R/W
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    }, // Atomic? Storage R/W
                     count: None,
                 },
             ],
         );
-        
+
         // Load shader
-        let shader = world.resource::<AssetServer>().load("shaders/star_compute.wgsl");
+        let shader = world
+            .resource::<AssetServer>()
+            .load("shaders/star_compute.wgsl");
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: Some("star_compute_pipeline".into()),
@@ -204,92 +223,114 @@ impl FromWorld for StarComputePipeline {
             zero_initialize_workgroup_memory: false,
         });
 
-        StarComputePipeline { pipeline, bind_group_layout: layout }
+        StarComputePipeline {
+            pipeline,
+            bind_group_layout: layout,
+        }
     }
 }
 
 #[derive(Resource)]
 pub struct StarRenderPipeline {
     pub pipeline_id: CachedRenderPipelineId,
-    pub view_layout: BindGroupLayout, // Group 0 (Bevy View)
-    pub star_layout: BindGroupLayout, // Group 1 (Stars)
+    pub view_layout: BindGroupLayout,  // Group 0 (Bevy View)
+    pub star_layout: BindGroupLayout,  // Group 1 (Stars)
     pub model_layout: BindGroupLayout, // Group 2 (Model)
 }
 
 impl FromWorld for StarRenderPipeline {
     fn from_world(world: &mut World) -> Self {
-         let render_device = world.resource::<RenderDevice>();
-         
-         // Group 0: View (Standard Bevy)
-         let mesh_pipeline = world.resource::<MeshPipeline>();
-         let view_layout = mesh_pipeline.view_layouts[0].bind_group_layout.clone();
+        let render_device = world.resource::<RenderDevice>();
 
-         // Group 1: Stars (Storage Read)
-         let star_layout = render_device.create_bind_group_layout(
-             Some("star_render_layout"),
-             &[BindGroupLayoutEntry {
-                 binding: 0,
-                 visibility: ShaderStages::VERTEX,
-                 ty: BindingType::Buffer { ty: BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
-                 count: None,
-             }]
-         );
-         
-         // Group 2: Model (Uniform)
-         let model_layout = render_device.create_bind_group_layout(
-             Some("star_model_layout"),
-             &[BindGroupLayoutEntry {
-                 binding: 0,
-                 visibility: ShaderStages::VERTEX,
-                 ty: BindingType::Buffer { ty: BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-                 count: None,
-             }]
-         );
-         
-         let shader = world.resource::<AssetServer>().load("shaders/star_render.wgsl");
-         let pipeline_cache = world.resource::<PipelineCache>();
-         
-         let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
-             label: Some("star_render_pipeline".into()),
-             layout: vec![view_layout.clone(), star_layout.clone(), model_layout.clone()],
-             vertex: VertexState {
-                 shader: shader.clone(),
-                 shader_defs: vec![],
-                 entry_point: "vertex".into(),
-                 buffers: vec![], 
-             },
-             fragment: Some(FragmentState {
-                 shader: shader,
-                 shader_defs: vec![],
-                 entry_point: "fragment".into(),
-                 targets: vec![Some(ColorTargetState {
-                     // Main Pass determined to be Rgba8UnormSrgb from WGPU logs
-                     format: TextureFormat::Rgba8UnormSrgb, 
-                     blend: Some(BlendState::ALPHA_BLENDING),
-                     write_mask: ColorWrites::ALL,
-                 })],
-             }),
-             primitive: PrimitiveState {
-                 topology: PrimitiveTopology::TriangleList,
-                 ..default()
-             },
-             depth_stencil: Some(DepthStencilState {
-                 format: TextureFormat::Depth32Float,
-                 depth_write_enabled: false, 
-                 depth_compare: CompareFunction::GreaterEqual, 
-                 stencil: StencilState::default(),
-                 bias: DepthBiasState::default(),
-             }),
-             multisample: MultisampleState {
-                 count: 4, // Default MSAA sample count
-                 mask: !0,
-                 alpha_to_coverage_enabled: false,
-             },
-             push_constant_ranges: vec![],
-             zero_initialize_workgroup_memory: false,
-         });
+        // Group 0: View (Standard Bevy)
+        let mesh_pipeline = world.resource::<MeshPipeline>();
+        let view_layout = mesh_pipeline.view_layouts[0].bind_group_layout.clone();
 
-         StarRenderPipeline { pipeline_id, view_layout, star_layout, model_layout }
+        // Group 1: Stars (Storage Read)
+        let star_layout = render_device.create_bind_group_layout(
+            Some("star_render_layout"),
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        );
+
+        // Group 2: Model (Uniform)
+        let model_layout = render_device.create_bind_group_layout(
+            Some("star_model_layout"),
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        );
+
+        let shader = world
+            .resource::<AssetServer>()
+            .load("shaders/star_render.wgsl");
+        let pipeline_cache = world.resource::<PipelineCache>();
+
+        let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
+            label: Some("star_render_pipeline".into()),
+            layout: vec![
+                view_layout.clone(),
+                star_layout.clone(),
+                model_layout.clone(),
+            ],
+            vertex: VertexState {
+                shader: shader.clone(),
+                shader_defs: vec![],
+                entry_point: "vertex".into(),
+                buffers: vec![],
+            },
+            fragment: Some(FragmentState {
+                shader: shader,
+                shader_defs: vec![],
+                entry_point: "fragment".into(),
+                targets: vec![Some(ColorTargetState {
+                    // Main Pass determined to be Rgba8UnormSrgb from WGPU logs
+                    format: TextureFormat::Rgba8UnormSrgb,
+                    blend: Some(BlendState::ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                ..default()
+            },
+            depth_stencil: Some(DepthStencilState {
+                format: TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: CompareFunction::GreaterEqual,
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            }),
+            multisample: MultisampleState {
+                count: 4, // Default MSAA sample count
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            push_constant_ranges: vec![],
+            zero_initialize_workgroup_memory: false,
+        });
+
+        StarRenderPipeline {
+            pipeline_id,
+            view_layout,
+            star_layout,
+            model_layout,
+        }
     }
 }
 
@@ -300,12 +341,10 @@ pub struct StarSectorBuffers {
     pub indirect_buffer: Buffer,
     pub uniform_buffer: Buffer,
     pub bind_group_compute: BindGroup,
-    pub bind_group_render: BindGroup, 
+    pub bind_group_render: BindGroup,
     pub bind_group_model: BindGroup,
     pub computed: bool,
 }
-
-
 
 // System to Prepare Buffers
 fn prepare_star_buffers(
@@ -343,7 +382,7 @@ fn prepare_star_buffers(
         let star_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some("star_buffer"),
             size: (max_stars * star_size) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::VERTEX, 
+            usage: BufferUsages::STORAGE | BufferUsages::VERTEX,
             mapped_at_creation: false,
         });
 
@@ -354,7 +393,7 @@ fn prepare_star_buffers(
             usage: BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         // Reset Indirect Buffer (Atomic counter must start at 0)
         // VertexCount=6, InstanceCount=0, FirstVertex=0, FirstInstance=0
         let indirect_data: [u32; 4] = [6, 0, 0, 0];
@@ -365,34 +404,45 @@ fn prepare_star_buffers(
             Some("star_compute_group"),
             &compute_pipeline.bind_group_layout,
             &[
-                BindGroupEntry { binding: 0, resource: input_buffer.as_entire_binding() },
-                BindGroupEntry { binding: 1, resource: star_buffer.as_entire_binding() },
-                BindGroupEntry { binding: 2, resource: indirect_buffer.as_entire_binding() },
-            ]
+                BindGroupEntry {
+                    binding: 0,
+                    resource: input_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: star_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: indirect_buffer.as_entire_binding(),
+                },
+            ],
         );
-        
+
         // Render Bind Group (Stars)
         let bind_group_render = render_device.create_bind_group(
             Some("star_render_group"),
             &render_pipeline.star_layout,
-            &[
-                BindGroupEntry { binding: 0, resource: star_buffer.as_entire_binding() }
-            ]
+            &[BindGroupEntry {
+                binding: 0,
+                resource: star_buffer.as_entire_binding(),
+            }],
         );
-                // Model Bind Group
+        // Model Bind Group
         let model: [f32; 16] = sector.global_transform.compute_matrix().to_cols_array();
         let model_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("star_model_buffer"),
             contents: bytemuck::cast_slice(&model),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST, 
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
-        
+
         let bind_group_model = render_device.create_bind_group(
-             Some("star_model_group"),
-             &render_pipeline.model_layout,
-             &[
-                 BindGroupEntry { binding: 0, resource: model_buffer.as_entire_binding() }
-             ]
+            Some("star_model_group"),
+            &render_pipeline.model_layout,
+            &[BindGroupEntry {
+                binding: 0,
+                resource: model_buffer.as_entire_binding(),
+            }],
         );
 
         commands.entity(entity).insert(StarSectorBuffers {
@@ -409,18 +459,18 @@ fn prepare_star_buffers(
 
 // Queue
 use bevy::core_pipeline::core_3d::Transparent3d;
-use bevy::render::render_phase::{DrawFunctions, SetItemPipeline, AddRenderCommand};
+use bevy::render::render_phase::{AddRenderCommand, DrawFunctions, SetItemPipeline};
 
 // Define Draw Function
 type DrawStarSector = (
     SetItemPipeline,
-    SetMeshViewBindGroup<0>, 
+    SetMeshViewBindGroup<0>,
     DrawStarSectorCommand,
 );
 
 struct DrawStarSectorCommand;
 impl bevy::render::render_phase::RenderCommand<Transparent3d> for DrawStarSectorCommand {
-    type Param = Res<'static, RenderDevice>; 
+    type Param = Res<'static, RenderDevice>;
     type ViewQuery = ();
     // Entity is the sector
     type ItemQuery = &'static StarSectorBuffers;
@@ -433,15 +483,17 @@ impl bevy::render::render_phase::RenderCommand<Transparent3d> for DrawStarSector
         _render_device: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some(buffers) = buffers else { return RenderCommandResult::Failure("Missing buffers"); };
-        
+        let Some(buffers) = buffers else {
+            return RenderCommandResult::Failure("Missing buffers");
+        };
+
         // Bind Group 0 is handled by SetMeshViewBindGroup<0>
 
         // Bind Group 1 & 2: Star Data & Transform
         pass.set_bind_group(1, &buffers.bind_group_render, &[]);
         pass.set_bind_group(2, &buffers.bind_group_model, &[]);
         pass.draw_indirect(&buffers.indirect_buffer, 0);
-        
+
         RenderCommandResult::Success
     }
 }
@@ -451,7 +503,7 @@ use bevy::render::render_phase::PhaseItemExtraIndex;
 
 // Queue System
 fn queue_star_bind_group(
-    _commands: Commands, 
+    _commands: Commands,
     transparent_3d_draw_functions: Res<DrawFunctions<Transparent3d>>,
     render_pipeline: Res<StarRenderPipeline>,
     views: Query<Entity, (With<ExtractedView>, With<MeshViewBindGroup>)>,
@@ -459,7 +511,10 @@ fn queue_star_bind_group(
     mut sectors: Query<(Entity, &mut StarSectorBuffers)>,
     mut stars_to_compute: ResMut<StarsToCompute>,
 ) {
-    let draw_function = transparent_3d_draw_functions.read().get_id::<DrawStarSector>().unwrap();
+    let draw_function = transparent_3d_draw_functions
+        .read()
+        .get_id::<DrawStarSector>()
+        .unwrap();
 
     for view_entity in views.iter() {
         // DEBUG: Print components
@@ -467,30 +522,30 @@ fn queue_star_bind_group(
         //    info!("View Entity Components: {:?}", entity_ref.archetype().components()); // Hard to access in system
         // }
         // We can't easily print names without World access.
-        
-        let Some(phase) = phases.get_mut(&view_entity) else { continue };
+
+        let Some(phase) = phases.get_mut(&view_entity) else {
+            continue;
+        };
 
         for (entity, mut buffers) in sectors.iter_mut() {
-             // Always compute ONCE
-             if !buffers.computed {
-                 buffers.computed = true; 
-                 stars_to_compute.entities.push(entity);
-             }
+            // Always compute ONCE
+            if !buffers.computed {
+                buffers.computed = true;
+                stars_to_compute.entities.push(entity);
+            }
 
-             // Add Draw Command
-             phase.add(Transparent3d {
-                 entity: (entity, MainEntity::from(entity)),
-                 pipeline: render_pipeline.pipeline_id,
-                 draw_function,
-                 distance: 0.0,
-                 batch_range: 0..1,
-                 extra_index: PhaseItemExtraIndex::NONE,
-             });
+            // Add Draw Command
+            phase.add(Transparent3d {
+                entity: (entity, MainEntity::from(entity)),
+                pipeline: render_pipeline.pipeline_id,
+                draw_function,
+                distance: 0.0,
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::NONE,
+            });
         }
     }
 }
-
-
 
 // Fix Node logic
 impl Node for StarComputeNode {
@@ -498,25 +553,36 @@ impl Node for StarComputeNode {
         self.query_state.update_archetypes(world);
     }
 
-    fn run(&self, _graph: &mut RenderGraphContext, render_context: &mut RenderContext, world: &World) -> Result<(), NodeRunError> {
+    fn run(
+        &self,
+        _graph: &mut RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
         let compute_pipeline = world.resource::<StarComputePipeline>();
         let stars_to_compute = world.resource::<StarsToCompute>();
-        
-        if stars_to_compute.entities.is_empty() { return Ok(()); }
-        
-        let Some(pipeline) = pipeline_cache.get_compute_pipeline(compute_pipeline.pipeline) else { return Ok(()); };
-        
-        let mut pass = render_context.command_encoder().begin_compute_pass(&ComputePassDescriptor::default());
-        pass.set_pipeline(pipeline);
-        
-        for entity in stars_to_compute.entities.iter() {
-             if let Ok((_, buffers)) = self.query_state.get_manual(world, *entity) {
-                 pass.set_bind_group(0, &buffers.bind_group_compute, &[]);
-                 pass.dispatch_workgroups(1, 1, 1);
-             }
+
+        if stars_to_compute.entities.is_empty() {
+            return Ok(());
         }
-        
+
+        let Some(pipeline) = pipeline_cache.get_compute_pipeline(compute_pipeline.pipeline) else {
+            return Ok(());
+        };
+
+        let mut pass = render_context
+            .command_encoder()
+            .begin_compute_pass(&ComputePassDescriptor::default());
+        pass.set_pipeline(pipeline);
+
+        for entity in stars_to_compute.entities.iter() {
+            if let Ok((_, buffers)) = self.query_state.get_manual(world, *entity) {
+                pass.set_bind_group(0, &buffers.bind_group_compute, &[]);
+                pass.dispatch_workgroups(1, 1, 1);
+            }
+        }
+
         Ok(())
     }
 }
@@ -524,5 +590,3 @@ impl Node for StarComputeNode {
 fn clear_stars_to_compute(mut stars: ResMut<StarsToCompute>) {
     stars.entities.clear();
 }
-
-

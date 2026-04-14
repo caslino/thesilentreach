@@ -1,19 +1,18 @@
+use crate::player::camera::{Velocity, ZenCamera};
+use crate::universe::physics::{GRAVITY_CONSTANT, GRID_SIZE};
+use crate::universe::{Mass, Radius};
 use bevy::prelude::*;
 use big_space::GridCell;
-use crate::player::camera::{Velocity, ZenCamera};
-use crate::universe::{Mass, Radius};
-use crate::universe::physics::{GRAVITY_CONSTANT, GRID_SIZE};
 
 pub struct TrajectoryPlugin;
 
 impl Plugin for TrajectoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PredictionTimer>()
-           .init_resource::<AntiCollisionState>()
-           .add_systems(Update, update_trajectory_prediction);
+            .init_resource::<AntiCollisionState>()
+            .add_systems(Update, update_trajectory_prediction);
     }
 }
-
 
 #[derive(Resource, Default, Debug)]
 pub struct AntiCollisionState {
@@ -41,11 +40,13 @@ fn update_trajectory_prediction(
         return;
     }
 
-    let Ok((start_cell, start_transform, start_vel)) = q_ship.get_single() else { return; };
+    let Ok((start_cell, start_transform, start_vel)) = q_ship.get_single() else {
+        return;
+    };
 
     let mut current_pos = start_transform.translation;
     let mut current_vel = start_vel.0;
-    
+
     let sim_dt = 0.05;
     let steps = 100;
 
@@ -54,38 +55,38 @@ fn update_trajectory_prediction(
 
     for _ in 0..steps {
         let mut total_acc = Vec3::ZERO;
-        
+
         for (body_cell, body_tf, mass, radius) in q_mass.iter() {
             let cell_diff = *body_cell - *start_cell;
             let large_diff = Vec3::new(
-                cell_diff.x as f32 * GRID_SIZE, 
+                cell_diff.x as f32 * GRID_SIZE,
                 cell_diff.y as f32 * GRID_SIZE,
                 cell_diff.z as f32 * GRID_SIZE,
             );
-            
+
             let body_rel_pos = body_tf.translation + large_diff;
             let relative_pos = body_rel_pos - current_pos;
             let distance_sq = relative_pos.length_squared();
-            
+
             if distance_sq > 0.1 {
                 let distance = distance_sq.sqrt();
                 let dir = relative_pos / distance;
                 let force = GRAVITY_CONSTANT * mass.0 / distance_sq;
                 total_acc += dir * force;
-                
+
                 // ACS Risk Detection: Dynamic Safety Margin (2.0x Radius)
                 // This ensures we detect large stars from further away.
-                let safety_margin = radius.0 * 3.0; 
-                
+                let safety_margin = radius.0 * 3.0;
+
                 if distance < safety_margin {
                     acs_state.is_active = true;
-                    
+
                     // Improved Evasion Logic
                     // If we are flying roughly towards it?
                     // Check dot product of velocity and direction to body.
                     let vel_dir = current_vel.normalize_or_zero();
                     let dot = vel_dir.dot(dir);
-                    
+
                     if dot > 0.9 {
                         // Head-on collision!
                         // We need to sidestep. Use cross product to find a perpendicular vector.
@@ -109,7 +110,7 @@ fn update_trajectory_prediction(
         current_vel += total_acc * sim_dt;
         current_pos += current_vel * sim_dt;
     }
-    
+
     if acs_state.is_active {
         acs_state.avoidance_vector = acs_state.avoidance_vector.normalize_or_zero();
     }
