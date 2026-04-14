@@ -12,6 +12,9 @@ struct StarMaterial {
     corona_intensity: f32,
     rim_power: f32,
     intensity: f32,
+    flare_scale: f32,
+    flare_speed: f32,
+    flare_intensity: f32,
 };
 
 @group(2) @binding(0) var<uniform> material: StarMaterial;
@@ -166,16 +169,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let rim_factor = pow(rim, material.rim_power); 
 
     // Core is brighter but NOT white. 
-    // Mix towards a deeper version of the hue at the edges
     let core_color = base_color * 1.6;
-    let edge_color = base_color * 0.1; // Deep contrast at horizon
+    let edge_color = base_color * 0.1; 
     
     var surface_color = mix(core_color, edge_color, rim_factor);
     
     // --- HIGH CONTRAST TEXTURES ---
     
-    // Convection Cells (Organic bubbles)
-    // Lightened borders (0.4) for more natural look
+    // Convection Cells
     let granulation = mix(0.4, 1.0, cell_edge);
     surface_color *= granulation;
     
@@ -186,16 +187,34 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Hot spots add intense hue-locked glow
     surface_color += hot_spots * base_color * material.hot_spot_intensity;
     
-    // --- 5. CORONA GLOW ---
+    // --- 5. SOLAR FLARES / STRANDS ---
+    // Stretched noise to create hair-like strands eminating from surface
+    // We use polar-like coordinates by stretching the sphere position along one local axis
+    let flare_speed = material.flare_speed;
+    let flare_scale = material.flare_scale;
+    
+    // Coordinate for strands (Stretched on one axis)
+    let strand_pos = warped_pos * vec3<f32>(flare_scale, flare_scale * 0.1, flare_scale) + vec3<f32>(time * flare_speed);
+    let strand_noise = fbm(strand_pos);
+    
+    // Sharpen into thin "strands"
+    let strands = pow(strand_noise, 4.0) * smoothstep(0.2, 0.5, turbulence);
+    
+    // Only show strands near the rim (silhouette) to make them look like hair eminating out
+    let flare_mask = pow(rim, 3.0); 
+    let final_flares = strands * flare_mask * material.flare_intensity;
+    
+    surface_color += final_flares * base_color;
+    
+    // --- 6. CORONA GLOW ---
     let corona_intensity = pow(rim, 6.0) * material.corona_intensity;
     let corona_color = base_color * 1.5;
     surface_color += corona_color * corona_intensity;
     
-    // --- 6. GLOBAL LIMB DARKENING PASS ---
-    // Final sphericity push
+    // --- 7. GLOBAL LIMB DARKENING PASS ---
     surface_color *= (1.0 - pow(rim, 2.0) * 0.7);
     
-    // --- 7. HDR OUTPUT ---
+    // --- 8. HDR OUTPUT ---
     let intensity = material.intensity;
     
     return vec4<f32>(surface_color * intensity, 1.0);

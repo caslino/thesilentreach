@@ -82,6 +82,12 @@ pub struct StarVisuals {
     pub rim_power: f32,
     /// Final brightness boost (safety: keep around 1.0-1.5)
     pub intensity: f32,
+    /// Scale of solar flare strands (higher = more/finer strands)
+    pub flare_scale: f32,
+    /// Speed of flare flickering
+    pub flare_speed: f32,
+    /// Brightness of the flare strands
+    pub flare_intensity: f32,
 }
 
 impl Default for StarVisuals {
@@ -95,6 +101,9 @@ impl Default for StarVisuals {
             corona_intensity: 1.2,
             rim_power: 3.0,
             intensity: 1.1,
+            flare_scale: 15.0,
+            flare_speed: 0.1,
+            flare_intensity: 2.0,
         }
     }
 }

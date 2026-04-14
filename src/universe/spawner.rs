@@ -79,6 +79,9 @@ fn sync_star_presets(
                         material.corona_intensity = v.corona_intensity;
                         material.rim_power = v.rim_power;
                         material.intensity = v.intensity;
+                        material.flare_scale = v.flare_scale;
+                        material.flare_speed = v.flare_speed;
+                        material.flare_intensity = v.flare_intensity;
                     }
                 }
             }
@@ -670,6 +673,9 @@ fn spawn_star_with_data(
                             corona_intensity: visuals.corona_intensity,
                             rim_power: visuals.rim_power,
                             intensity: visuals.intensity,
+                            flare_scale: visuals.flare_scale,
+                            flare_speed: visuals.flare_speed,
+                            flare_intensity: visuals.flare_intensity,
                             star_type: data.star_type,
                         }
                     })),
@@ -735,6 +741,9 @@ fn spawn_star_with_data(
                             corona_intensity: visuals.corona_intensity,
                             rim_power: visuals.rim_power,
                             intensity: visuals.intensity,
+                            flare_scale: visuals.flare_scale,
+                            flare_speed: visuals.flare_speed,
+                            flare_intensity: visuals.flare_intensity,
                             star_type: data.star_type,
                         }
                     })),
