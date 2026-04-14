@@ -8,6 +8,25 @@ pub struct StarMaterial {
     pub color: LinearRgba,
     #[uniform(0)]
     pub seed: f32,
+    #[uniform(0)]
+    pub convection_scale: f32,
+    #[uniform(0)]
+    pub convection_speed: f32,
+    #[uniform(0)]
+    pub warp_intensity: f32,
+    #[uniform(0)]
+    pub plasma_speed: f32,
+    #[uniform(0)]
+    pub hot_spot_intensity: f32,
+    #[uniform(0)]
+    pub corona_intensity: f32,
+    #[uniform(0)]
+    pub rim_power: f32,
+    #[uniform(0)]
+    pub intensity: f32,
+    
+    // Metadata for runtime sync (not sent to GPU)
+    pub star_type: super::StarType,
 }
 
 impl Material for StarMaterial {

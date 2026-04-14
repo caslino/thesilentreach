@@ -4,6 +4,14 @@
 struct StarMaterial {
     color: vec4<f32>,
     seed: f32,
+    convection_scale: f32,
+    convection_speed: f32,
+    warp_intensity: f32,
+    plasma_speed: f32,
+    hot_spot_intensity: f32,
+    corona_intensity: f32,
+    rim_power: f32,
+    intensity: f32,
 };
 
 @group(2) @binding(0) var<uniform> material: StarMaterial;
@@ -118,73 +126,77 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let time = mesh_view_bindings::globals.time;
     let sphere_pos = normalize(in.world_position.xyz);
     
-    // --- 1. GRANULATION (Convection Cells) ---
-    let gran_scale = 12.0;
-    let gran_speed = 0.05;
-    let gran_pos = sphere_pos * gran_scale + vec3<f32>(sin(time * gran_speed), cos(time * gran_speed * 0.7), 0.0);
+    // --- 1. ORGANIC CONVECTION (Domain Warped Voronoi) ---
+    // Warp the sphere coordinates with noise to break the "blocky" grid
+    let warp_scale = 1.6;
+    let warp_noise = fbm(sphere_pos * warp_scale + vec3<f32>(time * 0.1, 0.0, material.seed));
+    let warped_pos = sphere_pos + vec3<f32>(warp_noise * material.warp_intensity); 
+
+    let gran_scale = material.convection_scale + sin(material.seed) * 0.5;
+    let gran_speed = material.convection_speed;
+    let gran_pos = warped_pos * gran_scale + vec3<f32>(time * gran_speed, cos(time * gran_speed * 0.8), 0.0);
+    
     let vor = voronoi(gran_pos);
-    let cell_edge = smoothstep(0.0, 0.15, vor.y - vor.x); // Dark edges between cells
+    // Wider, softer edges
+    let cell_edge = smoothstep(0.1, 0.4, vor.y - vor.x); 
     
     // --- 2. TURBULENT PLASMA FLOW ---
-    let plasma_speed = 0.15;
-    let shift = vec3<f32>(time * plasma_speed, time * plasma_speed * 0.7, material.seed);
+    let plasma_speed = material.plasma_speed;
+    let shift = vec3<f32>(time * plasma_speed, time * plasma_speed * 0.6, material.seed);
     
-    // Multi-scale turbulence
-    let turb1 = fbm(sphere_pos * 4.0 + shift);
-    let turb2 = fbm(sphere_pos * 8.0 - shift * 0.5);
-    let turb3 = fbm(sphere_pos * 16.0 + shift * 1.5);
-    let turbulence = turb1 * 0.5 + turb2 * 0.35 + turb3 * 0.15;
+    // Multi-scale noise for internal flow
+    let turb1 = fbm(warped_pos * 4.0 + shift);
+    let turb2 = fbm(warped_pos * 8.0 - shift * 0.4);
+    let turbulence = (turb1 * 0.6 + turb2 * 0.4);
     
-    // --- 3. HOT SPOTS (Active Regions) ---
-    let hot_pos = sphere_pos * 3.0 + vec3<f32>(material.seed * 0.1);
-    let hot_noise = fbm(hot_pos + vec3<f32>(time * 0.1));
-    let hot_spots = smoothstep(0.55, 0.75, hot_noise);
+    // --- 3. HOT SPOTS ---
+    let hot_pos = warped_pos * 2.5 + vec3<f32>(material.seed * 0.1);
+    let hot_noise = fbm(hot_pos + vec3<f32>(time * 0.08));
+    let hot_spots = smoothstep(0.6, 0.8, hot_noise);
     
-    // --- 4. COLOR GRADIENT ---
+    // --- 4. COLOR GRADIENT (Hue Preserving) ---
     let base_color = material.color.rgb;
     
-    // Core is brighter but preserves hue better
-    let core_color = base_color * 1.8;
-
-    // Edge is significantly darker and richer
-    let edge_color = base_color * 0.2; // Darker edge for limb darkening
-    
-    // Fresnel for edge detection
+    // Rim Darkening for depth
     let view_dir = normalize(mesh_view_bindings::view.world_position.xyz - in.world_position.xyz);
     let normal = normalize(in.world_normal);
     let rim = 1.0 - max(dot(view_dir, normal), 0.0);
-    // Increased power for sharper limb darkening
-    let rim_factor = pow(rim, 2.5); 
     
-    // Mix core to edge
+    // Sharp limb darkening
+    let rim_factor = pow(rim, material.rim_power); 
+
+    // Core is brighter but NOT white. 
+    // Mix towards a deeper version of the hue at the edges
+    let core_color = base_color * 1.6;
+    let edge_color = base_color * 0.1; // Deep contrast at horizon
+    
     var surface_color = mix(core_color, edge_color, rim_factor);
     
-    // --- INCREASED CONTRAST FOR TEXTURE ---
+    // --- HIGH CONTRAST TEXTURES ---
     
-    // Granulation (Cellular structure)
-    // Deeper edges (0.3) for more "cracked" look
-    let granulation = mix(0.3, 1.2, cell_edge);
+    // Convection Cells (Organic bubbles)
+    // Lightened borders (0.4) for more natural look
+    let granulation = mix(0.4, 1.0, cell_edge);
     surface_color *= granulation;
     
-    // Turbulence (Plasma flow)
-    let turb_brightness = 0.4 + turbulence * 1.2; 
-    surface_color *= turb_brightness;
+    // Turbulence creates rifts and glows
+    let turb_factor = 0.4 + turbulence * 1.5;
+    surface_color *= turb_factor;
     
-    // Hot spots add intense brightness but masked by base_color hue
-    surface_color += hot_spots * base_color * 1.2;
+    // Hot spots add intense hue-locked glow
+    surface_color += hot_spots * base_color * material.hot_spot_intensity;
     
     // --- 5. CORONA GLOW ---
-    let corona_intensity = pow(rim, 6.0) * 1.5; // Tighter, brighter corona
+    let corona_intensity = pow(rim, 6.0) * material.corona_intensity;
     let corona_color = base_color * 1.5;
     surface_color += corona_color * corona_intensity;
     
-    // --- 6. LIMB DARKENING BLEND ---
-    let limb_darkening = 1.0 - pow(rim, 1.5) * 0.6;
-    surface_color *= limb_darkening;
+    // --- 6. GLOBAL LIMB DARKENING PASS ---
+    // Final sphericity push
+    surface_color *= (1.0 - pow(rim, 2.0) * 0.7);
     
     // --- 7. HDR OUTPUT ---
-    // Reduced from 4.5 to 2.8 to prevent white washout
-    let intensity = 2.8;
+    let intensity = material.intensity;
     
     return vec4<f32>(surface_color * intensity, 1.0);
 }

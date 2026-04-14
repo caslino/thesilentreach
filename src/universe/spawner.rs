@@ -5,7 +5,7 @@ use crate::universe::gpu_star_renderer::StarSector;
 use crate::universe::materials::{PlanetMaterial, StarMaterial};
 use crate::universe::{
     Mass, Planet, PlanetDetails, PlanetType, Radius, SECTOR_SIZE, SectorIndex, Star, StarDetails,
-    UniverseSeed,
+    UniverseSeed, StarPresets, StarVisuals,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -19,6 +19,7 @@ use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use bevy::ecs::system::SystemParam;
 
 pub struct StarSystemSpawnerPlugin;
 
@@ -30,18 +31,58 @@ impl Plugin for StarSystemSpawnerPlugin {
             .init_resource::<SectorTaskTracker>()
             .init_resource::<NoiseTextures>()
             .init_resource::<PlanetTextureAtlas>()
+            .init_resource::<StarPresets>()
             .add_systems(
                 Update,
                 (
                     manage_galaxy_sectors,
                     handle_generation_tasks,
-                    // Ensure texture tasks are handled before potential despawns to avoid command races
+                    sync_star_presets, // Live Tuning System
                     sync_universe_view,
                     update_lod_scaling,
                     despawn_distant_systems,
                     rotate_planets,
                 ),
             );
+    }
+}
+
+/// System to reload star_presets.json and update all materials live
+fn sync_star_presets(
+    mut presets: ResMut<StarPresets>,
+    mut star_materials: ResMut<Assets<StarMaterial>>,
+    time: Res<Time>,
+    mut last_sync: Local<f32>,
+) {
+    if time.elapsed_secs() - *last_sync < 1.0 { // Throttle disc read
+        return;
+    }
+    *last_sync = time.elapsed_secs();
+
+    let config_path = "assets/config/star_presets.json";
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(new_map) = serde_json::from_str::<HashMap<String, StarVisuals>>(&content) {
+            // Check if anything actually changed
+            if new_map != presets.map {
+                presets.map = new_map;
+                info!("STAR CONFIG: Reloaded presets from JSON.");
+                
+                // Update ALL items in the material cache
+                for (_, material) in star_materials.iter_mut() {
+                    let type_key = format!("{:?}", material.star_type);
+                    if let Some(v) = presets.map.get(&type_key) {
+                        material.convection_scale = v.convection_scale;
+                        material.convection_speed = v.convection_speed;
+                        material.warp_intensity = v.warp_intensity;
+                        material.plasma_speed = v.plasma_speed;
+                        material.hot_spot_intensity = v.hot_spot_intensity;
+                        material.corona_intensity = v.corona_intensity;
+                        material.rim_power = v.rim_power;
+                        material.intensity = v.intensity;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -148,14 +189,25 @@ pub struct SpawnTracker {
 // SectorIndex moved to mod.rs
 
 #[derive(Resource, Default)]
-struct GalaxyMap {
+pub(crate) struct GalaxyMap {
     // Map Sector -> List of Stars in that sector
     sectors: HashMap<SectorIndex, Vec<(GridCell<i64>, StarDetails)>>,
 }
 
 #[derive(Resource, Default)]
-struct SectorTaskTracker {
+pub(crate) struct SectorTaskTracker {
     tasks: HashMap<SectorIndex, Task<(SectorIndex, Vec<(GridCell<i64>, StarDetails)>)>>,
+}
+
+#[derive(SystemParam)]
+struct SpawnerAssets<'w> {
+    common_meshes: Res<'w, CommonMeshes>,
+    std_materials: ResMut<'w, Assets<StandardMaterial>>,
+    star_materials: ResMut<'w, Assets<StarMaterial>>,
+    planet_materials: ResMut<'w, Assets<PlanetMaterial>>,
+    images: ResMut<'w, Assets<Image>>,
+    noise_textures: Res<'w, NoiseTextures>,
+    atlas: Res<'w, PlanetTextureAtlas>,
 }
 
 fn manage_galaxy_sectors(
@@ -297,19 +349,14 @@ fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
+    q_camera: Query<&GridCell<i64>, (With<FloatingOrigin>, Changed<GridCell<i64>>)>, // Event Driven
     q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
-    common_meshes: Res<CommonMeshes>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>,
-    mut star_materials: ResMut<Assets<StarMaterial>>,
-    mut planet_materials: ResMut<Assets<PlanetMaterial>>,
+    mut assets: SpawnerAssets,
     db: Res<Database>,
     render_config: Res<RenderConfig>,
-    mut images: ResMut<Assets<Image>>,
     seed: Res<UniverseSeed>,
-    noise_textures: Res<NoiseTextures>,
-    atlas: Res<PlanetTextureAtlas>,
     config: Res<crate::universe::UniverseConfig>,
+    presets: Res<StarPresets>,
 ) {
     let Ok(camera_cell) = q_camera.get_single() else {
         return;
@@ -393,17 +440,18 @@ fn sync_universe_view(
                                     big_space_entity,
                                     *cell,
                                     star_data,
-                                    &common_meshes,
-                                    &mut star_materials,
-                                    &mut planet_materials,
-                                    &mut std_materials,
+                                    &assets.common_meshes,
+                                    &mut assets.star_materials,
+                                    &mut assets.planet_materials,
+                                    &mut assets.std_materials,
                                     &db,
                                     &render_config,
-                                    &mut images,
-                                    &noise_textures,
-                                    &atlas,
+                                    &mut assets.images,
+                                    &assets.noise_textures,
+                                    &assets.atlas,
                                     &seed,
                                     &config,
+                                    &presets,
                                 );
                                 tracker.spawned_cells.insert(*cell, entities);
                             }
@@ -523,6 +571,7 @@ fn spawn_star_with_data(
     atlas: &Res<PlanetTextureAtlas>,
     _seed: &UniverseSeed,
     config: &crate::universe::UniverseConfig,
+    presets: &Res<StarPresets>,
 ) -> Vec<Entity> {
     let mut spawned_entities = Vec::new();
 
@@ -604,10 +653,25 @@ fn spawn_star_with_data(
                 // Neutron Star: Tiny but extremely bright with bloom
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
-                    MeshMaterial3d(star_materials.add(StarMaterial {
-                        // Multiply color for extreme HDR intensity (will bloom heavily)
-                        color: LinearRgba::from(data.color) * 50.0,
-                        seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
+                    MeshMaterial3d(star_materials.add({
+                        // Look up visuals from presets
+                        let visuals = presets.map.get(&format!("{:?}", data.star_type))
+                            .cloned()
+                            .unwrap_or_default();
+
+                        StarMaterial {
+                            color: LinearRgba::from(data.color),
+                            seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
+                            convection_scale: visuals.convection_scale,
+                            convection_speed: visuals.convection_speed,
+                            warp_intensity: visuals.warp_intensity,
+                            plasma_speed: visuals.plasma_speed,
+                            hot_spot_intensity: visuals.hot_spot_intensity,
+                            corona_intensity: visuals.corona_intensity,
+                            rim_power: visuals.rim_power,
+                            intensity: visuals.intensity,
+                            star_type: data.star_type,
+                        }
                     })),
                     Mass(1_000_000_000.0), // Very dense
                     Radius(data.size),
@@ -654,9 +718,25 @@ fn spawn_star_with_data(
                 // Standard star rendering for OBAFGKM types
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
-                    MeshMaterial3d(star_materials.add(StarMaterial {
-                        color: LinearRgba::from(data.color),
-                        seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
+                    MeshMaterial3d(star_materials.add({
+                        // Look up visuals from presets
+                        let visuals = presets.map.get(&format!("{:?}", data.star_type))
+                            .cloned()
+                            .unwrap_or_default();
+
+                        StarMaterial {
+                            color: LinearRgba::from(data.color),
+                            seed: cell.x as f32 * 0.123 + cell.y as f32 * 0.456,
+                            convection_scale: visuals.convection_scale,
+                            convection_speed: visuals.convection_speed,
+                            warp_intensity: visuals.warp_intensity,
+                            plasma_speed: visuals.plasma_speed,
+                            hot_spot_intensity: visuals.hot_spot_intensity,
+                            corona_intensity: visuals.corona_intensity,
+                            rim_power: visuals.rim_power,
+                            intensity: visuals.intensity,
+                            star_type: data.star_type,
+                        }
                     })),
                     Mass(1_000_000.0),
                     Radius(data.size),

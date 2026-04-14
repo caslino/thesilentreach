@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use big_space::{BigSpaceCommands, BigSpacePlugin, ReferenceFrame};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub struct UniversePlugin;
 
@@ -48,6 +49,7 @@ pub struct Mass(pub f32);
 #[derive(Component)]
 pub struct Radius(pub f32);
 
+
 #[derive(Component)]
 pub struct Star;
 
@@ -59,6 +61,48 @@ pub struct Orbit {
     pub radius: f32,
     pub speed: f32,
     pub angle: f32,
+}
+
+/// Dynamic visual parameters for stars, tunable via JSON
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect, PartialEq)]
+pub struct StarVisuals {
+    /// Size of surface bubbles (larger = lower scale)
+    pub convection_scale: f32,
+    /// Speed of convection motion
+    pub convection_speed: f32,
+    /// Strength of coordinate distortion
+    pub warp_intensity: f32,
+    /// Speed of internal plasma flows
+    pub plasma_speed: f32,
+    /// Brightness of active hot spots
+    pub hot_spot_intensity: f32,
+    /// Glow intensity at the rim
+    pub corona_intensity: f32,
+    /// Sharpness of limb darkening (higher = smaller hot core)
+    pub rim_power: f32,
+    /// Final brightness boost (safety: keep around 1.0-1.5)
+    pub intensity: f32,
+}
+
+impl Default for StarVisuals {
+    fn default() -> Self {
+        Self {
+            convection_scale: 4.5,
+            convection_speed: 0.04,
+            warp_intensity: 0.15,
+            plasma_speed: 0.12,
+            hot_spot_intensity: 1.5,
+            corona_intensity: 1.2,
+            rim_power: 3.0,
+            intensity: 1.1,
+        }
+    }
+}
+
+/// Global resource mapping star types to their current visual parameters
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StarPresets {
+    pub map: HashMap<String, StarVisuals>,
 }
 
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
