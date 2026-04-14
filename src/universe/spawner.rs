@@ -53,6 +53,7 @@ fn sync_star_presets(
     mut star_materials: ResMut<Assets<StarMaterial>>,
     time: Res<Time>,
     mut last_sync: Local<f32>,
+    mut q_stars: Query<(&mut Transform, &StarDetails)>,
 ) {
     if time.elapsed_secs() - *last_sync < 1.0 { // Throttle disc read
         return;
@@ -67,7 +68,7 @@ fn sync_star_presets(
                 presets.map = new_map;
                 info!("STAR CONFIG: Reloaded presets from JSON.");
                 
-                // Update ALL items in the material cache
+                // 1. Update the Material Asset cache
                 for (_, material) in star_materials.iter_mut() {
                     let type_key = format!("{:?}", material.star_type);
                     if let Some(v) = presets.map.get(&type_key) {
@@ -82,6 +83,17 @@ fn sync_star_presets(
                         material.flare_scale = v.flare_scale;
                         material.flare_speed = v.flare_speed;
                         material.flare_intensity = v.flare_intensity;
+                        material.flare_height = v.flare_height;
+                        material.flare_mode = v.flare_mode;
+                    }
+                }
+
+                // 2. Update physical Mesh Scales of all active stars
+                for (mut transform, details) in q_stars.iter_mut() {
+                    let type_key = format!("{:?}", details.star_type);
+                    if let Some(v) = presets.map.get(&type_key) {
+                        // The mesh must be large enough to contain the flares: size * (1.1 + flare_height)
+                        transform.scale = Vec3::splat(details.size * (1.1 + v.flare_height));
                     }
                 }
             }
@@ -218,6 +230,7 @@ fn manage_galaxy_sectors(
     mut task_tracker: ResMut<SectorTaskTracker>, // Track tasks
     seed: Res<UniverseSeed>,
     db: Res<Database>,
+    config: Res<crate::universe::UniverseConfig>,
     q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame (tracker/db logic handles optimization)
 ) {
     let Ok(camera_cell) = q_camera.get_single() else {
@@ -228,6 +241,7 @@ fn manage_galaxy_sectors(
     let center_sector = SectorIndex::from_cell(*camera_cell);
     let view_dist = 1; // 3x3x3 sectors
     let seed_val = *seed; // Copy seed
+    let star_override = config.star_override;
 
     // Clone DB for async task usage
     let db_clone = db.clone();
@@ -249,7 +263,7 @@ fn manage_galaxy_sectors(
                     let db_for_task = db_clone.clone();
 
                     let task = thread_pool.spawn(async move {
-                        let data = generate_sector_data(sector_idx, seed_val, &db_for_task);
+                        let data = generate_sector_data(sector_idx, seed_val, &db_for_task, star_override);
                         (sector_idx, data)
                     });
                     task_tracker.tasks.insert(sector_idx, task);
@@ -284,6 +298,7 @@ fn generate_sector_data(
     sector: SectorIndex,
     seed: UniverseSeed,
     db: &Database,
+    star_override: Option<crate::universe::StarType>,
 ) -> Vec<(GridCell<i64>, StarDetails)> {
     // 1. Check Database
     match db.get_sector_data(sector) {
@@ -323,9 +338,16 @@ fn generate_sector_data(
             for z in start_z..end_z {
                 let cell = GridCell::<i64>::new(x, y, z);
 
-                if let Some((star_type, color, size)) =
+                if let Some((mut star_type, color, size)) =
                     crate::universe::star_common::get_star_data(x, y, z, seed.0)
                 {
+                    // Apply override if at origin
+                    if x == 0 && y == 0 && z == 0 {
+                        if let Some(over) = star_override {
+                            star_type = over;
+                        }
+                    }
+
                     stars.push((
                         cell,
                         StarDetails {
@@ -676,6 +698,7 @@ fn spawn_star_with_data(
                             flare_speed: visuals.flare_speed,
                             flare_intensity: visuals.flare_intensity,
                             flare_height: visuals.flare_height,
+                            flare_mode: visuals.flare_mode,
                             star_type: data.star_type,
                         }
                     })),
@@ -744,6 +767,7 @@ fn spawn_star_with_data(
                             flare_speed: visuals.flare_speed,
                             flare_intensity: visuals.flare_intensity,
                             flare_height: visuals.flare_height,
+                            flare_mode: visuals.flare_mode,
                             star_type: data.star_type,
                         }
                     })),

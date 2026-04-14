@@ -32,6 +32,8 @@ pub struct StarMaterial {
     pub flare_intensity: f32,
     #[uniform(0)]
     pub flare_height: f32,
+    #[uniform(0)]
+    pub flare_mode: u32,
     
     // Metadata for runtime sync (not sent to GPU)
     pub star_type: super::StarType,

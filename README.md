@@ -52,22 +52,26 @@ cargo run --release
 
 Customize the experience with command-line arguments:
 
-- **Procedural Rendering**: Enable high-detail procedural shaders.
-  ```bash
-  cargo run --release -- --procedural
-  ```
+| Argument | Description | Example |
+|----------|-------------|---------|
+| `--procedural` | Enable high-detail procedural shaders for stars and planets. | `cargo run --release -- --procedural` |
+| `--star <type>` | Teleport to a specific star type at the origin for rendering inspection. | `cargo run --release -- --star NeutronStar` |
+| `--scenario <name>`| Load a specific scenario (e.g., `jupiter`, `our_system`, `milky_way`). | `cargo run --release -- --scenario jupiter` |
+| `--origin` | Force the player to spawn at the coordinate origin `(0,0,0)`. | `cargo run --release -- --origin` |
+| `video` | Set resolution to 1920x1080 (16:9) for landscape capture. | `cargo run --release -- video` |
+| `shorts` | Set resolution to 1080x1920 (9:16) for portrait capture. | `cargo run --release -- shorts` |
 
-- **Scenarios**: Load a specific starting scenario.
-  ```bash
-  cargo run --release -- --scenario milky_way
-  ```
-  *(Default is a random seed if unspecified)*
-
-- **Video Recording**: Run with specific resolutions for capture.
-  ```bash
-  cargo run --release -- video   # 1920x1080
-  cargo run --release -- shorts  # 1080x1920
-  ```
+#### Available Star Types
+Use these with the `--star` parameter:
+- `O_BlueGiant` (Hottest, largest, violet-blue)
+- `B_BlueWhite` (Bright blue-white)
+- `A_White` (Pure white)
+- `F_YellowWhite` (Cream/Off-white)
+- `G_YellowDwarf` (Golden yellow, Sun-like)
+- `K_OrangeDwarf` (Warm orange)
+- `M_RedDwarf` (Cool red-orange, most common)
+- `NeutronStar` (Tiny, extreme brightness, violet-white)
+- `BlackHole` (Gravitational singularity, black core)
 
 ### Black Hole Simulation
 A separate binary is available for the black hole simulation:

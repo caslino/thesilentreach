@@ -36,6 +36,7 @@ pub enum RenderMode {
 pub struct UniverseConfig {
     pub scenario_name: String,
     pub active_seed: u64,
+    pub star_override: Option<StarType>,
 }
 
 #[derive(Resource, Default, Debug)]
@@ -90,6 +91,8 @@ pub struct StarVisuals {
     pub flare_intensity: f32,
     /// Extra distance flares can reach (multiplier of radius, e.g. 0.5)
     pub flare_height: f32,
+    /// Mode for distribution: 0 = Uniform, 1 = Random/Spotty
+    pub flare_mode: u32,
 }
 
 impl Default for StarVisuals {
@@ -107,8 +110,53 @@ impl Default for StarVisuals {
             flare_speed: 0.1,
             flare_intensity: 2.0,
             flare_height: 0.2,
+            flare_mode: 0,
         }
     }
+}
+
+/// Dynamic visual parameters for the distant starfield and nebula
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Reflect, PartialEq)]
+pub struct StarfieldVisuals {
+    /// Density of procedural stars (0.0 to 1.0)
+    pub star_density: f32,
+    /// Overall brightness multiplier for stars
+    pub star_brightness: f32,
+    /// Speed of the twinkle animation
+    pub twinkle_speed: f32,
+    /// Amplitude of the twinkle effect
+    pub twinkle_intensity: f32,
+    /// Overall visibility of nebula clouds
+    pub nebula_intensity: f32,
+    /// Noise frequency for nebula patterns
+    pub nebula_scale: f32,
+    /// Evolution/scrolling speed of nebula layers
+    pub nebula_speed: f32,
+    /// Primary nebula gaseous color
+    pub nebula_color_a: Color,
+    /// Secondary nebula gaseous color 
+    pub nebula_color_b: Color,
+}
+
+impl Default for StarfieldVisuals {
+    fn default() -> Self {
+        Self {
+            star_density: 0.002,
+            star_brightness: 1.0,
+            twinkle_speed: 1.0,
+            twinkle_intensity: 1.0,
+            nebula_intensity: 1.0,
+            nebula_scale: 0.2,
+            nebula_speed: 1.0,
+            nebula_color_a: Color::srgb(0.1, 0.8, 0.9), // Teal
+            nebula_color_b: Color::srgb(0.5, 0.0, 0.5), // Purple
+        }
+    }
+}
+
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StarfieldConfig {
+    pub visuals: StarfieldVisuals,
 }
 
 /// Global resource mapping star types to their current visual parameters
@@ -212,6 +260,21 @@ impl StarType {
             // Exotic
             StarType::NeutronStar => 15_000_000.0, // Despite size, very bright
             StarType::BlackHole => 0.0,            // No range
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "o_bluegiant" | "bluegiant" | "o" => Some(StarType::O_BlueGiant),
+            "b_bluewhite" | "bluewhite" | "b" => Some(StarType::B_BlueWhite),
+            "a_white" | "white" | "a" => Some(StarType::A_White),
+            "f_yellowwhite" | "yellowwhite" | "f" => Some(StarType::F_YellowWhite),
+            "g_yellowdwarf" | "yellowdwarf" | "g" | "sun" => Some(StarType::G_YellowDwarf),
+            "k_orangedwarf" | "orangedwarf" | "k" => Some(StarType::K_OrangeDwarf),
+            "m_reddwarf" | "reddwarf" | "m" => Some(StarType::M_RedDwarf),
+            "neutronstar" | "neutron" => Some(StarType::NeutronStar),
+            "blackhole" | "black" => Some(StarType::BlackHole),
+            _ => None,
         }
     }
 }
@@ -363,10 +426,17 @@ impl Plugin for UniversePlugin {
 
         info!("Universe Scenario: {}, Seed: {}", scenario_name, seed);
 
+        let star_override = if let Some(pos) = args.iter().position(|x| x == "--star") {
+            args.get(pos + 1).and_then(|t| StarType::from_str(t))
+        } else {
+            None
+        };
+
         app.insert_resource(UniverseSeed(seed))
             .insert_resource(UniverseConfig {
                 scenario_name,
                 active_seed: seed,
+                star_override,
             })
             .add_plugins(BigSpacePlugin::<i64>::default())
             .add_systems(PreStartup, setup_universe)

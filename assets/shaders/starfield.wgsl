@@ -3,6 +3,15 @@
 struct StarfieldMaterial {
     galactic_pos: vec3<f32>,
     time: f32,
+    star_density: f32,
+    star_brightness: f32,
+    twinkle_speed: f32,
+    twinkle_intensity: f32,
+    nebula_intensity: f32,
+    nebula_scale: f32,
+    nebula_speed: f32,
+    nebula_color_a: vec4<f32>,
+    nebula_color_b: vec4<f32>,
 };
 
 @group(2) @binding(0) var<uniform> material: StarfieldMaterial;
@@ -20,26 +29,24 @@ fn hash3(p: vec3<f32>) -> f32 {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let dir = normalize(in.world_position.xyz);
     
-    // --- STARS (Procedural - Keep as is, it's cheap/crisp) ---
+    // --- STARS (Procedural) ---
     // Galactic Pos offset for stars
     let star_coord = dir * 1000.0 + material.galactic_pos * 0.0001;
     let h = hash3(floor(star_coord * 1.5));
     var stars = 0.0;
     
-    if (h > 0.995) {
-        let base_brightness = pow((h - 0.995) / 0.005, 5.0);
+    let threshold = 1.0 - material.star_density;
+    if (h > threshold) {
+        let base_brightness = pow((h - threshold) / (1.0 - threshold), 5.0) * material.star_brightness;
         let twinkle_seed = hash3(floor(star_coord * 1.5) + vec3<f32>(13.37, 42.0, 7.0));
-        let twinkle_speed = 3.0 + twinkle_seed * 2.0; 
-        let twinkle = 0.5 + 0.5 * sin(material.time * twinkle_speed + twinkle_seed * 100.0);
-        stars = base_brightness * mix(0.7, 1.2, twinkle); 
+        let tw_speed = (3.0 + twinkle_seed * 2.0) * material.twinkle_speed; 
+        let twinkle = 0.5 + 0.5 * sin(material.time * tw_speed + twinkle_seed * 100.0);
+        stars = base_brightness * mix(1.0 - material.twinkle_intensity * 0.5, 1.0 + material.twinkle_intensity * 0.5, twinkle); 
     }
 
     // --- NEBULA (Textured Triplanar) ---
-    // We sample the 2D noise texture three times (X, Y, Z planes) to fake 3D volume.
-    // Plus 2 layers of scrolling for motion.
-
-    let n_scale = 0.2; 
-    let speed = 0.005;
+    let n_scale = material.nebula_scale; 
+    let speed = 0.005 * material.nebula_speed;
     let time = material.time;
     
     // Triplanar Weights
@@ -69,11 +76,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Combine Layers
     let n = (n1 + n2) * 0.5; // Average
     
-    // Colorize
-    let teal = vec3<f32>(0.1, 0.8, 0.9);
-    let purple = vec3<f32>(0.5, 0.0, 0.5);
-    let nebula_color = mix(purple, teal, n);
-    let nebula_strength = pow(n, 2.5) * 0.4; // Contrast curve
+    // Colorize using material uniforms
+    let nebula_color = mix(material.nebula_color_b.rgb, material.nebula_color_a.rgb, n);
+    let nebula_strength = pow(n, 2.5) * 0.4 * material.nebula_intensity; // Contrast curve
 
     let final_color = vec3<f32>(stars) + nebula_color * nebula_strength;
     

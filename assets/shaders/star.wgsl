@@ -16,6 +16,7 @@ struct StarMaterial {
     flare_speed: f32,
     flare_intensity: f32,
     flare_height: f32,
+    flare_mode: u32,
 };
 
 @group(2) @binding(0) var<uniform> material: StarMaterial;
@@ -129,10 +130,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_color = material.color.rgb;
     
     // RAY SETUP
-    // Mesh is scale S = (1.1 + H). Internal core is at radius 1.0 (local of physical star).
-    // In these relative local coordinates (where mesh is 1.0), the core is at:
     let core_r = 1.0 / (1.1 + material.flare_height);
-    
     let ro = in.local_camera_pos;
     let rd = normalize(in.local_pos - ro);
     
@@ -144,7 +142,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var final_color = vec3<f32>(0.0);
     var final_alpha = 0.0;
     
-    // Core Logic
+    // --- 1. CORE RENDERING ---
     if (h > 0.0) {
         let t = -b - sqrt(h);
         if (t > 0.0) {
@@ -171,42 +169,52 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             surface += spots * base_color * material.hot_spot_intensity;
             
             final_color = surface;
-            final_alpha = 1.0;
+            
+            // SILHOUETTE FIX: Smooth the alphap at the very edge of the core
+            // h is essentially the "depth" of the intersection. When h is near 0, we are at the rim.
+            final_alpha = smoothstep(0.0, 0.01, h); 
         }
     }
     
-    // FLARES & CORONA (In the shell volume)
-    // d is the distance of the ray from the center at its closest point
+    // --- 2. FLARES & CORONA (In the shell volume) ---
     let d = length(ro - rd * dot(ro, rd));
     
     if (d < 1.0) {
-        // Position relative to physical star silhouette
-        // Normalize distance: 0 at core surface, 1 at mesh edge
         let r_norm = clamp((d - core_r) / (1.0 - core_r), 0.0, 1.0);
-        
-        // Solar strands (Stretched noise)
         let flare_pos = normalize(in.local_pos) * material.flare_scale + vec3<f32>(time * material.flare_speed);
-        let strands = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 4.0);
         
+        var strands = 0.0;
+        if (material.flare_mode == 0u) {
+            // UNIFORM DISTRIBUTED FLARES
+            strands = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 4.0);
+        } else {
+            // RANDOM SPOTTY FLARES (Eruptions)
+            // Use low freq noise as a mask for eruption sites
+            let spot_mask = pow(smoothstep(0.4, 0.7, fbm(flare_pos * 0.2)), 5.0);
+            // High frequency detail inside the spots
+            let detail = pow(fbm(flare_pos * vec3<f32>(1.0, 0.1, 1.0)), 3.0);
+            strands = spot_mask * detail * 8.0; 
+        }
+        
+        // Strands fade out with distance from core
         let flare_alpha = strands * (1.0 - r_norm) * material.flare_intensity;
         let corona = pow(1.0 - r_norm, 4.0) * material.corona_intensity;
         
         let glow_rgb = base_color * (flare_alpha + corona);
         
-        if (final_alpha == 0.0) {
-            final_color = glow_rgb;
-            final_alpha = clamp(flare_alpha + corona * 0.5, 0.0, 1.0);
+        // Composite flares with core
+        if (final_alpha < 0.99) {
+            // If outside core or at the soft edge, use pure glow/alpha
+            final_color = mix(final_color, glow_rgb, 1.0 - final_alpha);
+            final_alpha = max(final_alpha, clamp(flare_alpha + corona * 0.5, 0.0, 1.0));
         } else {
-            // Overlay flares at the edges
-            final_color += glow_rgb * pow(r_norm, 0.5);
+            // If inside core, additively blend the glow at the rim to wrap around
+            // Use r_norm to only bleed glow into the core slightly
+            let bleed = smoothstep(0.1, 0.0, r_norm);
+            final_color += glow_rgb * bleed;
         }
     }
     
-    // FALLBACK DIAGNOSTICS (If nothing rendered, show very faint sphere bounds)
-    if (final_alpha < 0.01) {
-        final_color = base_color * 0.05;
-        final_alpha = 0.05;
-    }
-    
+    // Final brightness boost
     return vec4<f32>(final_color * material.intensity, final_alpha);
 }

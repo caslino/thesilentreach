@@ -2,13 +2,19 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use big_space::{FloatingOrigin, GridCell};
 use crate::universe::physics::GRID_SIZE;
+use crate::universe::{StarfieldConfig, StarfieldVisuals};
 
 pub struct SkyPlugin;
 
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<StarfieldMaterial>::default())
-           .add_systems(Update, (spawn_sky_sphere, update_sky_position));
+        app.init_resource::<StarfieldConfig>()
+           .add_plugins(MaterialPlugin::<StarfieldMaterial>::default())
+           .add_systems(Update, (
+               spawn_sky_sphere, 
+               update_sky_position,
+               sync_starfield_config
+           ));
     }
 }
 
@@ -18,6 +24,24 @@ pub struct StarfieldMaterial {
     pub galactic_pos: Vec3,
     #[uniform(0)]
     pub time: f32,
+    #[uniform(0)]
+    pub star_density: f32,
+    #[uniform(0)]
+    pub star_brightness: f32,
+    #[uniform(0)]
+    pub twinkle_speed: f32,
+    #[uniform(0)]
+    pub twinkle_intensity: f32,
+    #[uniform(0)]
+    pub nebula_intensity: f32,
+    #[uniform(0)]
+    pub nebula_scale: f32,
+    #[uniform(0)]
+    pub nebula_speed: f32,
+    #[uniform(0)]
+    pub nebula_color_a: LinearRgba,
+    #[uniform(0)]
+    pub nebula_color_b: LinearRgba,
     #[texture(1)]
     #[sampler(2)]
     pub noise_texture: Handle<Image>,
@@ -52,6 +76,7 @@ fn spawn_sky_sphere(
     mut materials: ResMut<Assets<StarfieldMaterial>>,
     mut images: ResMut<Assets<Image>>,
     q_ship: Query<Entity, (With<FloatingOrigin>, Without<SkySphere>)>,
+    config: Res<StarfieldConfig>,
 ) {
     if let Ok(ship_entity) = q_ship.get_single() {
          let noise_map = generate_noise_texture(&mut images);
@@ -62,6 +87,15 @@ fn spawn_sky_sphere(
                 MeshMaterial3d(materials.add(StarfieldMaterial {
                     galactic_pos: Vec3::ZERO,
                     time: 0.0,
+                    star_density: config.visuals.star_density,
+                    star_brightness: config.visuals.star_brightness,
+                    twinkle_speed: config.visuals.twinkle_speed,
+                    twinkle_intensity: config.visuals.twinkle_intensity,
+                    nebula_intensity: config.visuals.nebula_intensity,
+                    nebula_scale: config.visuals.nebula_scale,
+                    nebula_speed: config.visuals.nebula_speed,
+                    nebula_color_a: LinearRgba::from(config.visuals.nebula_color_a),
+                    nebula_color_b: LinearRgba::from(config.visuals.nebula_color_b),
                     noise_texture: noise_map,
                 })),
                 SkySphere,
@@ -164,4 +198,41 @@ fn update_sky_position(
     
     material.galactic_pos = Vec3::new(global_x, global_y, global_z);
     material.time = time.elapsed_secs();
+}
+
+/// System to reload starfield_config.json and update all materials live
+fn sync_starfield_config(
+    mut config: ResMut<StarfieldConfig>,
+    mut starfield_materials: ResMut<Assets<StarfieldMaterial>>,
+    time: Res<Time>,
+    mut last_sync: Local<f32>,
+) {
+    if time.elapsed_secs() - *last_sync < 1.0 { // Throttle disc read
+        return;
+    }
+    *last_sync = time.elapsed_secs();
+
+    let config_path = "assets/config/starfield_config.json";
+    if let Ok(content) = std::fs::read_to_string(config_path) {
+        if let Ok(new_visuals) = serde_json::from_str::<StarfieldVisuals>(&content) {
+            // Check if anything actually changed
+            if new_visuals != config.visuals {
+                config.visuals = new_visuals;
+                info!("STARFIELD CONFIG: Reloaded from JSON.");
+                
+                // Update ALL items in the material cache
+                for (_, material) in starfield_materials.iter_mut() {
+                    material.star_density = config.visuals.star_density;
+                    material.star_brightness = config.visuals.star_brightness;
+                    material.twinkle_speed = config.visuals.twinkle_speed;
+                    material.twinkle_intensity = config.visuals.twinkle_intensity;
+                    material.nebula_intensity = config.visuals.nebula_intensity;
+                    material.nebula_scale = config.visuals.nebula_scale;
+                    material.nebula_speed = config.visuals.nebula_speed;
+                    material.nebula_color_a = LinearRgba::from(config.visuals.nebula_color_a);
+                    material.nebula_color_b = LinearRgba::from(config.visuals.nebula_color_b);
+                }
+            }
+        }
+    }
 }

@@ -25,6 +25,7 @@ pub struct SpawnLocation {
 pub struct PersistenceConfig {
     pub scenario: String,
     pub force_origin: bool,
+    pub star_override: Option<crate::universe::StarType>,
 }
 
 use crate::player::camera::{Velocity, ZenCamera};
@@ -34,6 +35,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct PersistencePlugin {
     pub scenario: String,
     pub force_origin: bool,
+    pub star_override: Option<crate::universe::StarType>,
 }
 
 impl Plugin for PersistencePlugin {
@@ -50,6 +52,7 @@ impl Plugin for PersistencePlugin {
             .insert_resource(PersistenceConfig {
                 scenario: self.scenario.clone(),
                 force_origin: self.force_origin,
+                star_override: self.star_override,
             })
             .init_resource::<SpawnLocation>()
             .init_resource::<CurrentSystemData>()
@@ -63,13 +66,26 @@ fn load_player_state(
     mut spawn_loc: ResMut<SpawnLocation>,
     config: Res<PersistenceConfig>,
 ) {
-    if config.force_origin {
+    if config.force_origin || config.star_override.is_some() {
         spawn_loc.cell = GridCell::new(0, 0, 0);
-        spawn_loc.local_pos = Vec3::ZERO;
+        
+        // Default to origin
+        let mut local_pos = Vec3::ZERO;
+        
+        if let Some(star_type) = config.star_override {
+            // Get star size to position player outside it
+            let (_, max_size) = star_type.get_size_range();
+            // Position at 3x radius for a good view
+            local_pos = Vec3::new(0.0, 0.0, max_size * 3.0);
+            info!("PERSISTENCE: Star Override ({:?}). Spawning at distance {:.2}", star_type, local_pos.z);
+        } else {
+            info!("PERSISTENCE: Force Origin requested. Spawning at (0,0,0).");
+        }
+
+        spawn_loc.local_pos = local_pos;
         spawn_loc.velocity = Some(Vec3::ZERO);
         spawn_loc.throttle = 0.0;
         spawn_loc.has_spawned = true;
-        info!("PERSISTENCE: Force Origin requested. Spawning at (0,0,0).");
         return;
     }
 

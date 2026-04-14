@@ -49,6 +49,19 @@ fn main() {
         println!("COMMAND: TELEPORT TO ORIGIN 🚀");
     }
 
+    let star_override = if let Some(pos) = args.iter().position(|x| x == "--star") {
+        let t = args.get(pos + 1).cloned().unwrap_or_default();
+        let result = thesilentreach::universe::StarType::from_str(&t);
+        if let Some(st) = result {
+            println!("COMMAND: STAR OVERRIDE -> {:?} 🌟", st);
+        } else {
+            println!("WARNING: Unknown star type '{}'", t);
+        }
+        result
+    } else {
+        None
+    };
+
     // 1. Setup non-blocking writer
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
 
@@ -91,6 +104,7 @@ fn main() {
         .add_plugins(PersistencePlugin {
             scenario,
             force_origin,
+            star_override,
         })
         .add_plugins(thesilentreach::recorder::RecorderPlugin)
         .add_systems(Startup, check_gpu)
