@@ -293,7 +293,7 @@ pub struct SpawnTracker {
 #[derive(Resource, Default)]
 pub(crate) struct GalaxyMap {
     // Map Sector -> List of Stars in that sector
-    sectors: HashMap<SectorIndex, Vec<(GridCell<i64>, StarDetails)>>,
+    pub(crate) sectors: HashMap<SectorIndex, Vec<(GridCell<i64>, StarDetails)>>,
 }
 
 #[derive(Resource, Default)]
@@ -443,7 +443,7 @@ fn generate_sector_data(
             for z in start_z..end_z {
                 let cell = GridCell::<i64>::new(x, y, z);
 
-                if let Some((mut star_type, color, size)) =
+                if let Some((mut star_type, mut color, mut size)) =
                     crate::universe::star_common::get_star_data(x, y, z, seed.0)
                 {
                     let mut planets = None;
@@ -452,6 +452,10 @@ fn generate_sector_data(
                     if x == 0 && y == 0 && z == 0 {
                         if let Some(over) = star_override {
                             star_type = over;
+                            // Critical Fix: Also override color and size to match the type's defaults
+                            color = over.get_base_color();
+                            let (_, max_s) = over.get_size_range();
+                            size = max_s; // Use max size for overrides for best dramatic effect
                         }
 
                         // If planet_override set, ensure we have a planet to override in spawn_star_with_data

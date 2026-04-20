@@ -3,9 +3,9 @@ use bevy::prelude::*;
 use crate::persistence::{Database, Discovery, PlayerName};
 use bevy::input::keyboard::{Key, KeyboardInput};
 // use crate::universe::materials::{StarMaterial, PlanetMaterial};
-use crate::player::camera::ZenCamera;
-use crate::universe::spawner::SpawnTracker; // Needed to find entity from cell
-use crate::universe::{PlanetDetails, StarClicked, StarDetails, SystemSavedEvent};
+use crate::player::camera::{Velocity, ZenCamera};
+use crate::universe::spawner::{GalaxyMap, SpawnTracker}; // Needed to find entity from cell
+use crate::universe::{PlanetDetails, SectorIndex, StarClicked, StarDetails, SystemSavedEvent};
 use big_space::GridCell;
 
 pub struct SystemConsolePlugin;
@@ -20,11 +20,16 @@ impl Plugin for SystemConsolePlugin {
                     console_input_system,
                     handle_star_clicked_event,
                     teleport_to_origin_system,
+                    handle_spawn_command_event,
                 )
                     .chain(),
-            ); // Chained to prevent input conflict
+            )
+            .add_event::<SpawnCommandEvent>(); // Chained to prevent input conflict
     }
 }
+
+#[derive(Event)]
+pub struct SpawnCommandEvent(pub crate::universe::StarType);
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
 enum ConsoleFocus {
@@ -36,6 +41,7 @@ enum ConsoleFocus {
 #[derive(Resource, Default)]
 pub struct ConsoleState {
     pub active: bool,
+    pub spawn_mode: bool, // If true, we are in the spawn/jump menu
     target_cell: Option<big_space::GridCell<i64>>,
     target_entity: Option<Entity>, // Specific entity (Star or Planet)
     current_name: String,
@@ -64,6 +70,12 @@ struct CompositionText;
 #[derive(Component)]
 struct TargetLabelText;
 
+#[derive(Component)]
+struct SpawnTypeButton(crate::universe::StarType);
+
+#[derive(Component)]
+struct RegistryPanel;
+
 fn setup_console_ui(mut commands: Commands) {
     commands
         .spawn((
@@ -81,172 +93,281 @@ fn setup_console_ui(mut commands: Commands) {
             ConsoleOverlayRoot,
         ))
         .with_children(|parent| {
+            // Main Container (Horizontal)
             parent
-                .spawn((
-                    Node {
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        padding: UiRect::all(Val::Px(20.0)),
-                        border: UiRect::all(Val::Px(2.0)),
-                        width: Val::Px(600.0),
-                        ..default()
-                    },
-                    BorderColor(Color::WHITE),
-                    BackgroundColor(Color::srgb(0.1, 0.1, 0.1)),
-                ))
-                .with_children(|panel| {
-                    // Header
-                    panel.spawn((
-                        Text::new("SYSTEM CONSOLE"),
-                        TextFont {
-                            font_size: 24.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(1.0, 0.8, 0.2)),
-                    ));
+                .spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::FlexStart,
+                    ..default()
+                })
+                .with_children(|main_row| {
+                    // LEFT PANEL: REGISTRY
+                    main_row
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::Center,
+                                padding: UiRect::all(Val::Px(20.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                width: Val::Px(500.0),
+                                margin: UiRect::right(Val::Px(20.0)),
+                                ..default()
+                            },
+                            BorderColor(Color::WHITE),
+                            BackgroundColor(Color::srgb(0.05, 0.05, 0.05)),
+                            RegistryPanel,
+                        ))
+                        .with_children(|panel| {
+                            // Header
+                            panel.spawn((
+                                Text::new("SYSTEM REGISTRY"),
+                                TextFont {
+                                    font_size: 24.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(1.0, 0.8, 0.2)),
+                            ));
 
-                    panel.spawn((Node {
-                        height: Val::Px(20.0),
-                        ..default()
-                    },));
+                            panel.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
 
-                    // Name Label
-                    panel.spawn((
-                        Text::new("System Registry:"),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.7, 0.7, 0.7)),
-                        Node {
-                            align_self: AlignSelf::FlexStart,
-                            ..default()
-                        },
-                    ));
+                            // Name Label
+                            panel.spawn((
+                                Text::new("Registry Identity:"),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.7, 0.7, 0.7)),
+                                Node {
+                                    align_self: AlignSelf::FlexStart,
+                                    ..default()
+                                },
+                            ));
 
-                    // Target Label (Dynamic)
-                    panel.spawn((
-                        Text::new("Target: Scanning..."),
-                        TextFont {
-                            font_size: 16.0,
-                            ..default()
-                        }, // Bold/Larger
-                        TextColor(Color::srgb(0.0, 1.0, 1.0)), // Cyan
-                        TargetLabelText,
-                        Node {
-                            margin: UiRect::bottom(Val::Px(10.0)),
-                            align_self: AlignSelf::FlexStart,
-                            ..default()
-                        },
-                    ));
+                            // Target Label (Dynamic)
+                            panel.spawn((
+                                Text::new("Target: Scanning..."),
+                                TextFont {
+                                    font_size: 16.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.0, 1.0, 1.0)), // Cyan
+                                TargetLabelText,
+                                Node {
+                                    margin: UiRect::bottom(Val::Px(10.0)),
+                                    align_self: AlignSelf::FlexStart,
+                                    ..default()
+                                },
+                            ));
 
-                    // Name Input
-                    panel.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: 32.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        NameInputText,
-                        Node {
-                            margin: UiRect::bottom(Val::Px(20.0)),
-                            ..default()
-                        },
-                    ));
+                            // Name Input
+                            panel.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font_size: 32.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                NameInputText,
+                                Node {
+                                    margin: UiRect::bottom(Val::Px(20.0)),
+                                    ..default()
+                                },
+                            ));
 
-                    // Coordinates Display
-                    panel.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.5, 0.5, 0.5)),
-                        CoordinatesText,
-                        Node {
-                            margin: UiRect::bottom(Val::Px(10.0)),
-                            align_self: AlignSelf::FlexStart,
-                            ..default()
-                        },
-                    ));
+                            // Coordinates Display
+                            panel.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.5, 0.5, 0.5)),
+                                CoordinatesText,
+                                Node {
+                                    margin: UiRect::bottom(Val::Px(10.0)),
+                                    align_self: AlignSelf::FlexStart,
+                                    ..default()
+                                },
+                            ));
 
-                    // Named By Label (Dynamic)
-                    panel.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.9, 0.7, 0.2)), // Goldish
-                        NamedByText,
-                        Node {
-                            margin: UiRect::bottom(Val::Px(5.0)),
-                            align_self: AlignSelf::FlexStart,
-                            ..default()
-                        },
-                    ));
+                            // Named By Label (Dynamic)
+                            panel.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.9, 0.7, 0.2)), // Goldish
+                                NamedByText,
+                                Node {
+                                    margin: UiRect::bottom(Val::Px(5.0)),
+                                    align_self: AlignSelf::FlexStart,
+                                    ..default()
+                                },
+                            ));
 
-                    // Composition Label (Dynamic)
-                    panel.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.6, 0.8, 1.0)), // Cyanish
-                        CompositionText,
-                        Node {
-                            margin: UiRect::bottom(Val::Px(20.0)),
-                            align_self: AlignSelf::FlexStart,
-                            ..default()
-                        },
-                    ));
+                            // Composition Label (Dynamic)
+                            panel.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.6, 0.8, 1.0)), // Cyanish
+                                CompositionText,
+                                Node {
+                                    margin: UiRect::bottom(Val::Px(20.0)),
+                                    align_self: AlignSelf::FlexStart,
+                                    ..default()
+                                },
+                            ));
 
-                    // Note Label
-                    panel.spawn((
-                        Text::new("Zen Note:"),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.7, 0.7, 0.7)),
-                        Node {
-                            align_self: AlignSelf::FlexStart,
-                            ..default()
-                        },
-                    ));
+                            // Note Label
+                            panel.spawn((
+                                Text::new("Zen Note:"),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.7, 0.7, 0.7)),
+                                Node {
+                                    align_self: AlignSelf::FlexStart,
+                                    ..default()
+                                },
+                            ));
 
-                    // Note Input
-                    panel.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: 18.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                        NoteInputText,
-                        Node {
-                            width: Val::Percent(100.0),
-                            min_height: Val::Px(60.0),
-                            ..default()
-                        },
-                    ));
+                            // Note Input
+                            panel.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font_size: 18.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                                NoteInputText,
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    min_height: Val::Px(60.0),
+                                    ..default()
+                                },
+                            ));
 
-                    panel.spawn((Node {
-                        height: Val::Px(20.0),
-                        ..default()
-                    },));
+                            panel.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
 
-                    // Footer
-                    panel.spawn((
-                        Text::new("[TAB] Switch Field | [ENTER] Save | [ESC] Cancel"),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.5, 0.5, 0.5)),
-                    ));
+                            // Footer
+                            panel.spawn((
+                                Text::new("[TAB] Switch Field | [ENTER] Save | [ESC] Cancel"),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.5, 0.5, 0.5)),
+                            ));
+                        });
+
+                    // RIGHT PANEL: INTERSTELLAR TERMINAL (JUMP)
+                    main_row
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                align_items: AlignItems::Center,
+                                padding: UiRect::all(Val::Px(20.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                width: Val::Px(250.0),
+                                ..default()
+                            },
+                            BorderColor(Color::srgb(0.0, 0.6, 1.0)), // Blue Border
+                            BackgroundColor(Color::srgb(0.05, 0.05, 0.1)),
+                        ))
+                        .with_children(|panel| {
+                            panel.spawn((
+                                Text::new("JUMP TERMINAL"),
+                                TextFont {
+                                    font_size: 20.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.0, 1.0, 1.0)),
+                            ));
+
+                            panel.spawn((Node {
+                                height: Val::Px(15.0),
+                                ..default()
+                            },));
+
+                            panel.spawn((
+                                Text::new("Select Destination:"),
+                                TextFont {
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.5, 0.5, 0.8)),
+                                Node {
+                                    margin: UiRect::bottom(Val::Px(10.0)),
+                                    ..default()
+                                },
+                            ));
+
+                            let stars = vec![
+                                ("O_BlueGiant", crate::universe::StarType::O_BlueGiant),
+                                ("B_BlueWhite", crate::universe::StarType::B_BlueWhite),
+                                ("A_White", crate::universe::StarType::A_White),
+                                ("F_YellowWhite", crate::universe::StarType::F_YellowWhite),
+                                ("G_YellowDwarf", crate::universe::StarType::G_YellowDwarf),
+                                ("K_OrangeDwarf", crate::universe::StarType::K_OrangeDwarf),
+                                ("M_RedDwarf", crate::universe::StarType::M_RedDwarf),
+                                ("NeutronStar", crate::universe::StarType::NeutronStar),
+                                ("BlackHole", crate::universe::StarType::BlackHole),
+                            ];
+
+                            for (label, star_type) in stars {
+                                panel
+                                    .spawn((
+                                        Button,
+                                        Node {
+                                            width: Val::Percent(100.0),
+                                            height: Val::Px(30.0),
+                                            align_items: AlignItems::Center,
+                                            justify_content: JustifyContent::Center,
+                                            margin: UiRect::bottom(Val::Px(5.0)),
+                                            ..default()
+                                        },
+                                        BackgroundColor(Color::srgb(0.1, 0.1, 0.2)),
+                                        SpawnTypeButton(star_type),
+                                    ))
+                                    .with_children(|btn| {
+                                        btn.spawn((
+                                            Text::new(label),
+                                            TextFont {
+                                                font_size: 14.0,
+                                                ..default()
+                                            },
+                                            TextColor(Color::WHITE),
+                                        ));
+                                    });
+                            }
+
+                            panel.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
+
+                            panel.spawn((
+                                Text::new("Type '/spawn <type>'\nin registry name field"),
+                                TextFont {
+                                    font_size: 12.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.4, 0.4, 0.6)),
+                                TextLayout::new_with_justify(JustifyText::Center),
+                            ));
+                        });
                 });
         });
 }
@@ -337,6 +458,18 @@ fn handle_star_clicked_event(
 
         // PAUSE
         time.pause();
+    } else if keys.just_pressed(KeyCode::KeyK) {
+        // OPEN GENERAL OVERLAY (SPAWN MODE)
+        state.active = true;
+        state.target_cell = None;
+        state.target_entity = None;
+        state.current_name = "/spawn ".to_string();
+        state.focus = ConsoleFocus::Name;
+
+        if let Ok(mut vis) = q_overlay.get_single_mut() {
+            *vis = Visibility::Visible;
+        }
+        time.pause();
     }
 }
 
@@ -361,8 +494,26 @@ fn console_input_system(
     mut time: ResMut<Time<Virtual>>,
     db: Res<Database>,
     mut save_events: EventWriter<SystemSavedEvent>,
+    mut spawn_events: EventWriter<SpawnCommandEvent>,
     player_name: Res<PlayerName>,
+    mut q_buttons: Query<(&Interaction, &SpawnTypeButton), Changed<Interaction>>,
 ) {
+    // A. Handle Button Interactions (Even if console not fully 'active' in registry mode)
+    for (interaction, spawn_btn) in q_buttons.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            spawn_events.send(SpawnCommandEvent(spawn_btn.0));
+            save_events.send(SystemSavedEvent {
+                name: format!("JUMPING TO {:?}", spawn_btn.0),
+            });
+            state.active = false;
+            if let Ok(mut vis) = q_overlay.get_single_mut() {
+                *vis = Visibility::Hidden;
+            }
+            time.unpause();
+            return;
+        }
+    }
+
     if !state.active {
         return;
     }
@@ -386,7 +537,27 @@ fn console_input_system(
     }
 
     if keys.just_pressed(KeyCode::Enter) {
-        // Save
+        // Handle Commands first
+        let current_text = state.current_name.trim().to_lowercase();
+        if current_text.starts_with("/jump") || current_text.starts_with("/spawn") {
+            let parts: Vec<&str> = current_text.split_whitespace().collect();
+            if parts.len() > 1 {
+                if let Some(star_type) = crate::universe::StarType::from_str(parts[1]) {
+                    spawn_events.send(SpawnCommandEvent(star_type));
+                    save_events.send(SystemSavedEvent {
+                        name: format!("JUMPING TO {:?}", star_type),
+                    });
+                    state.active = false;
+                    if let Ok(mut vis) = q_overlay.get_single_mut() {
+                        *vis = Visibility::Hidden;
+                    }
+                    time.unpause();
+                    return;
+                }
+            }
+        }
+
+        // Save (Existing logic)
         if let Some(cell) = state.target_cell {
             let name = state.current_name.trim().to_string();
             let note = state.current_note.trim().to_string();
@@ -444,7 +615,7 @@ fn console_input_system(
                     match state.focus {
                         ConsoleFocus::Name => {
                             if state.current_name.len() < 100
-                                && (c.is_alphanumeric() || "-+=# ".contains(c))
+                                && (c.is_alphanumeric() || "-+=# /_".contains(c))
                             {
                                 state.current_name.push(c);
                             }
@@ -628,6 +799,56 @@ fn console_input_system(
         // Set color grey? Can't easily change color here without query.
         } else {
             txt.0 = format!("{}{}", state.current_note, cursor);
+        }
+    }
+}
+
+fn handle_spawn_command_event(
+    mut events: EventReader<SpawnCommandEvent>,
+    mut config: ResMut<crate::universe::UniverseConfig>,
+    mut p_config: ResMut<crate::persistence::PersistenceConfig>,
+    mut tracker: ResMut<SpawnTracker>,
+    mut galaxy_map: ResMut<GalaxyMap>,
+    mut q_player: Query<(&mut GridCell<i64>, &mut Transform, &mut Velocity), With<ZenCamera>>,
+    mut commands: Commands,
+) {
+    for ev in events.read() {
+        let star_type = ev.0;
+        info!("TERMINAL: Executing Jump to {:?}", star_type);
+
+        // 1. Update Configs
+        config.star_override = Some(star_type);
+        p_config.star_override = Some(star_type);
+
+        // 2. Clear Origin Sector Data to force regeneration
+        let origin_cell = GridCell::new(0, 0, 0);
+        let origin_sector = SectorIndex::from_cell(origin_cell);
+
+        // Remove from GalaxyMap so it generates from scratch with override
+        galaxy_map.sectors.remove(&origin_sector);
+
+        // Remove from SpawnTracker so it despawns and respawns
+        if let Some(entities) = tracker.spawned_cells.remove(&origin_cell) {
+            for entity in entities {
+                commands.entity(entity).despawn_recursive();
+            }
+        }
+
+        // 3. Teleport Player
+        if let Ok((mut cell, mut tf, mut vel)) = q_player.get_single_mut() {
+            *cell = origin_cell;
+            vel.0 = Vec3::ZERO;
+
+            // Positioning
+            let (_, max_size) = star_type.get_size_range();
+            let spawn_dist = (max_size * 3.0).max(100.0);
+            tf.translation = Vec3::new(0.0, 0.0, spawn_dist);
+            tf.look_at(Vec3::ZERO, Vec3::Y);
+
+            info!(
+                "TERMINAL: Jump complete. Positioned at distance {:.1}",
+                spawn_dist
+            );
         }
     }
 }

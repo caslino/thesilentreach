@@ -3,7 +3,7 @@
   "star_brightness": 2.2,
   "twinkle_speed": 5.0,
   "twinkle_intensity": 1.5,
-  "nebula_intensity": 1.8,
+  "nebula_intensity": 0.8,
   "nebula_scale": 0.25,
   "nebula_speed": 0.05,
   "nebula_color_a": {

@@ -14,7 +14,6 @@ impl Plugin for PlayerSetupPlugin {
 
 #[derive(Resource, Default)]
 struct SetupState {
-    pub active: bool,
     pub input_name: String,
 }
 
@@ -24,7 +23,7 @@ struct WelcomeOverlayRoot;
 #[derive(Component)]
 struct WelcomeInputText;
 
-fn setup_welcome_ui(mut commands: Commands, player_name: Res<PlayerName>, db: Res<Database>) {
+fn setup_welcome_ui(mut commands: Commands, _player_name: Res<PlayerName>, db: Res<Database>) {
     // Only show if player name is not set in DB
     let is_new_player = db.get_setting("player_name").unwrap_or(None).is_none();
     
