@@ -69,33 +69,15 @@ fn setup_camera(
 ) {
     let big_space_id = q_big_space.single();
 
-    // Generate Random Spawn if not set
+    // Generate Spawn if not set
     if !spawn_loc.has_spawned {
-        let mut rng = rand::thread_rng();
-        let range = 20_000..40_000;
-
-        let x = if rng.gen_bool(0.5) {
-            rng.gen_range(range.clone())
-        } else {
-            -rng.gen_range(range.clone())
-        };
-        let y = if rng.gen_bool(0.5) {
-            rng.gen_range(range.clone())
-        } else {
-            -rng.gen_range(range.clone())
-        };
-        let z = if rng.gen_bool(0.5) {
-            rng.gen_range(range.clone())
-        } else {
-            -rng.gen_range(range.clone())
-        };
-
-        spawn_loc.cell = GridCell::new(x, y, z);
+        // Start at the absolute center of the universe
+        spawn_loc.cell = GridCell::new(0, 0, 0);
         spawn_loc.local_pos = Vec3::new(0.0, 0.0, 2500.0);
         spawn_loc.has_spawned = true;
 
         info!(
-            "CRYO-AWAKENING: Spawned at {:?} (Safe Distance)",
+            "CRYO-AWAKENING: Spawned at {:?} (Universe Origin)",
             spawn_loc.cell
         );
     } else {

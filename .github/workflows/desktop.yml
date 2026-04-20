@@ -1,0 +1,45 @@
+name: Build Desktop
+
+on:
+  push:
+    branches: [ prod ]
+  pull_request:
+    branches: [ prod ]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager
+
+      - name: Build and Package
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          cargo packager --release --targets ${{ matrix.target }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-build
+          path: artifacts/

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::persistence::{Database, Discovery};
+use crate::persistence::{Database, Discovery, PlayerName};
 use bevy::input::keyboard::{Key, KeyboardInput};
 // use crate::universe::materials::{StarMaterial, PlanetMaterial};
 use crate::player::camera::ZenCamera;
@@ -361,6 +361,7 @@ fn console_input_system(
     mut time: ResMut<Time<Virtual>>,
     db: Res<Database>,
     mut save_events: EventWriter<SystemSavedEvent>,
+    player_name: Res<PlayerName>,
 ) {
     if !state.active {
         return;
@@ -397,7 +398,7 @@ fn console_input_system(
                     cell_y: cell.y,
                     cell_z: cell.z,
                     name: name.clone(),
-                    finder: "Player".to_string(),
+                    finder: player_name.0.clone(), // Use dynamic name
                     note: note.clone(), // Save user note
                     date: "2026".to_string(),
                     object_type: "Star System".to_string(), // Keep simple for now
@@ -506,7 +507,7 @@ fn console_input_system(
     // Named By Logic
     if let Ok(mut txt) = q_text_set.p3().get_single_mut() {
         if is_named {
-            txt.0 = "Named by: BigDaddy".to_string();
+            txt.0 = format!("Named by: {}", player_name.0);
         } else {
             txt.0 = "".to_string();
         }

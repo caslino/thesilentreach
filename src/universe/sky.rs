@@ -218,8 +218,8 @@ fn sync_starfield_config(
     }
     *last_sync = time.elapsed_secs();
 
-    let config_path = "assets/config/starfield_config.json";
-    if let Ok(content) = std::fs::read_to_string(config_path) {
+    let config_path = crate::get_asset_root().join("config/starfield_config.json");
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(new_visuals) = serde_json::from_str::<StarfieldVisuals>(&content) {
             // Check if anything actually changed
             if new_visuals != config.visuals {

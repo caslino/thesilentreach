@@ -11,6 +11,7 @@ use bevy::prelude::*;
 pub mod interaction;
 pub mod label_update;
 pub mod starmap;
+pub mod setup;
 
 pub struct PlayerPlugin;
 
@@ -26,6 +27,7 @@ impl Plugin for PlayerPlugin {
             .add_plugins(starmap::StarMapPlugin)
             .add_plugins(cockpit::CockpitPlugin)
             .add_plugins(navigation::NavigationPlugin)
-            .add_plugins(audio::ZenAudioPlugin);
+            .add_plugins(audio::ZenAudioPlugin)
+            .add_plugins(setup::PlayerSetupPlugin);
     }
 }

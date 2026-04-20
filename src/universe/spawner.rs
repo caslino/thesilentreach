@@ -51,9 +51,9 @@ impl Plugin for StarSystemSpawnerPlugin {
 
 /// Load star presets from disk, filtering out metadata keys (e.g. _help)
 fn load_star_presets_from_disk() -> StarPresets {
-    let config_path = "assets/config/star_presets.json";
+    let config_path = crate::get_asset_root().join("config/star_presets.json");
     let mut presets = StarPresets::default();
-    if let Ok(content) = std::fs::read_to_string(config_path) {
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(raw_map) = serde_json::from_str::<HashMap<String, serde_json::Value>>(&content) {
             for (key, value) in &raw_map {
                 if key.starts_with('_') {
@@ -86,8 +86,8 @@ fn sync_star_presets(
     }
     *last_sync = time.elapsed_secs();
 
-    let config_path = "assets/config/star_presets.json";
-    if let Ok(content) = std::fs::read_to_string(config_path) {
+    let config_path = crate::get_asset_root().join("config/star_presets.json");
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
         // Parse as raw JSON first, then filter out metadata keys (e.g. _help, _info)
         if let Ok(raw_map) = serde_json::from_str::<HashMap<String, serde_json::Value>>(&content) {
             let mut new_map = HashMap::new();
@@ -161,8 +161,8 @@ fn sync_planet_presets(
     }
     *last_sync = time.elapsed_secs();
 
-    let config_path = "assets/config/planet_presets.json";
-    if let Ok(content) = std::fs::read_to_string(config_path) {
+    let config_path = crate::get_asset_root().join("config/planet_presets.json");
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(new_map) = serde_json::from_str::<HashMap<String, PlanetVisuals>>(&content) {
             // Check if anything actually changed
             if new_map != presets.map {
@@ -760,6 +760,11 @@ fn spawn_star_with_data(
             crate::universe::StarType::BlackHole => {
                 // Black Hole: Black sphere with no light emission
                 // Note: Full BlackHoleMaterial with raymarching is in separate binary
+                let visuals = presets.map.get(&format!("{:?}", data.star_type))
+                    .cloned()
+                    .unwrap_or_default();
+                let star_size = data.size * visuals.size_multiplier;
+
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
                     MeshMaterial3d(std_materials.add(StandardMaterial {
@@ -769,7 +774,7 @@ fn spawn_star_with_data(
                         ..default()
                     })),
                     Mass(10_000_000_000.0), // Extreme mass
-                    Radius(data.size),
+                    Radius(star_size),
                     Star,
                     StarDetails {
                         star_type: data.star_type,
@@ -777,7 +782,7 @@ fn spawn_star_with_data(
                         size: data.size,
                         planets: None,
                     },
-                    Transform::IDENTITY.with_scale(Vec3::splat(data.size)),
+                    Transform::IDENTITY.with_scale(Vec3::splat(star_size)),
                 ))
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
@@ -796,7 +801,7 @@ fn spawn_star_with_data(
                         TextFont { font_size: 100.0, ..default() },
                         TextColor(Color::srgb(0.5, 0.0, 0.5)), // Purple for ominous feel
                         TextLayout::new_with_justify(JustifyText::Center),
-                        Transform::from_xyz(0.0, data.size * 2.5, 0.0).with_scale(Vec3::splat(1.0)),
+                        Transform::from_xyz(0.0, star_size * 2.5, 0.0).with_scale(Vec3::splat(1.0)),
                         SystemLabel,
                     ));
                 });
@@ -806,6 +811,7 @@ fn spawn_star_with_data(
                 let visuals = presets.map.get(&format!("{:?}", data.star_type))
                     .cloned()
                     .unwrap_or_default();
+                let star_size = data.size * visuals.size_multiplier;
 
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
@@ -833,7 +839,7 @@ fn spawn_star_with_data(
                         }
                     })),
                     Mass(1_000_000_000.0), // Very dense
-                    Radius(data.size),
+                    Radius(star_size),
                     Star,
                     StarDetails {
                         star_type: data.star_type,
@@ -841,7 +847,7 @@ fn spawn_star_with_data(
                         size: data.size,
                         planets: None,
                     },
-                    Transform::IDENTITY.with_scale(Vec3::splat(data.size * (1.1 + visuals.flare_height))),
+                    Transform::IDENTITY.with_scale(Vec3::splat(star_size * (1.1 + visuals.flare_height))),
                 ))
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
@@ -867,7 +873,7 @@ fn spawn_star_with_data(
                         TextFont { font_size: 100.0, ..default() },
                         TextColor(Color::srgb(0.8, 0.9, 1.0)), // Bright blue-white
                         TextLayout::new_with_justify(JustifyText::Center),
-                        Transform::from_xyz(0.0, data.size * 10.0, 0.0) // Extra offset for tiny star
+                        Transform::from_xyz(0.0, star_size * 10.0, 0.0) // Extra offset for tiny star
                             .with_scale(Vec3::splat(1.0)),
                         SystemLabel,
                     ));
@@ -878,6 +884,7 @@ fn spawn_star_with_data(
                 let visuals = presets.map.get(&format!("{:?}", data.star_type))
                     .cloned()
                     .unwrap_or_default();
+                let star_size = data.size * visuals.size_multiplier;
 
                 root.spawn((
                     Mesh3d(common_meshes.unit_sphere_high.clone()),
@@ -905,7 +912,7 @@ fn spawn_star_with_data(
                         }
                     })),
                     Mass(1_000_000.0),
-                    Radius(data.size),
+                    Radius(star_size),
                     Star,
                     StarDetails {
                         star_type: data.star_type,
@@ -913,7 +920,7 @@ fn spawn_star_with_data(
                         size: data.size,
                         planets: None,
                     },
-                    Transform::IDENTITY.with_scale(Vec3::splat(data.size * (1.1 + visuals.flare_height))),
+                    Transform::IDENTITY.with_scale(Vec3::splat(star_size * (1.1 + visuals.flare_height))),
                 ))
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,

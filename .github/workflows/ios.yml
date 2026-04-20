@@ -1,0 +1,28 @@
+name: Build iOS
+
+on:
+  push:
+    branches: [ prod ]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, x86_64-apple-ios
+
+      - name: Build iOS
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          # Note: A real iOS distribution requires xcodebuild and signing.
+          # This step ensures the binary compiles for iOS.
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-binary
+          path: target/aarch64-apple-ios/release/thesilentreach

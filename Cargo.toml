@@ -17,9 +17,28 @@ tracing-appender = "0.2.4"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 rusqlite = { version = "0.38.0", features = ["bundled"] }
 futures-lite = "2.6.1"
+dirs = "6.0"
 
 
 [profile.release]
 codegen-units = 1
 lto = "thin"
 opt-level = 3
+
+[package.metadata.packager]
+product-name = "The Silent Reach"
+identifier = "com.wbt.thesilentreach"
+version = "0.1.0"
+authors = ["Caslino Pereira"]
+description = "A high-fidelity space exploration simulation."
+homepage = "https://github.com/caslino/thesilentreach"
+out-dir = "./artifacts"
+resources = ["assets"]
+icons = ["assets/icons/icon.icns", "assets/icons/icon_1024.png"]
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+entitlements = "assets/macos/entitlements.plist"
+
+[package.metadata.packager.windows]
+# windows-specific config here

@@ -12,14 +12,22 @@ use thesilentreach::universe::{RenderConfig, RenderMode, UniversePlugin};
 mod effects;
 
 fn main() {
+    eprintln!("--- THE SILENT REACH STARTUP (FIX V1.3) ---");
+    
+    // macOS Bundle Path Detection
+    let asset_path = thesilentreach::get_asset_root().to_string_lossy().to_string();
+    if asset_path != "assets" {
+        eprintln!("DEBUG: Resolved Bundle Asset Root: {}", asset_path);
+    }
+
     // CLI Args Parsing
     let args: Vec<String> = std::env::args().collect();
-    let mut render_mode = RenderMode::Baked;
-    if args.contains(&"--procedural".to_string()) {
-        render_mode = RenderMode::Procedural;
-        println!("RENDER MODE: PROCEDURAL (High Detail) 💎");
-    } else {
+    let mut render_mode = RenderMode::Procedural;
+    if args.contains(&"--baked".to_string()) {
+        render_mode = RenderMode::Baked;
         println!("RENDER MODE: BAKED (High Performance) 🌍");
+    } else {
+        println!("RENDER MODE: PROCEDURAL (High Detail) 💎");
     }
 
     let scenario = if let Some(pos) = args.iter().position(|x| x == "--scenario") {
@@ -108,7 +116,8 @@ fn main() {
                     ..default()
                 })
                 .set(AssetPlugin {
-                    watch_for_changes_override: Some(true),
+                    file_path: asset_path,
+                    watch_for_changes_override: Some(cfg!(debug_assertions)),
                     ..default()
                 })
                 .disable::<bevy::log::LogPlugin>(),
@@ -123,7 +132,12 @@ fn main() {
             star_override,
             planet_override,
         })
-        .add_plugins(thesilentreach::recorder::RecorderPlugin)
+        .add_plugins(
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            thesilentreach::recorder::RecorderPlugin,
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            bevy::app::PanicHandlerPlugin, // Placeholder or empty plugin
+        )
         .add_systems(Startup, check_gpu)
         .run();
 }

@@ -101,6 +101,13 @@ pub struct StarVisuals {
     pub flare_enabled: bool,
     /// Bias: 0 = Uniform, 1 = Polar, 2 = Equator
     pub flare_bias: u32,
+    /// Multiplier for the star's physical radius
+    #[serde(default = "default_size_multiplier")]
+    pub size_multiplier: f32,
+}
+
+fn default_size_multiplier() -> f32 {
+    1.0
 }
 
 impl Default for StarVisuals {
@@ -123,6 +130,7 @@ impl Default for StarVisuals {
             flare_mode: 0,
             flare_enabled: true,
             flare_bias: 0,
+            size_multiplier: 1.0,
         }
     }
 }

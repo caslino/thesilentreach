@@ -13,6 +13,9 @@ pub struct CurrentSystemData {
 }
 
 #[derive(Resource, Default)]
+pub struct PlayerName(pub String);
+
+#[derive(Resource, Default)]
 pub struct SpawnLocation {
     pub cell: GridCell<i64>,
     pub local_pos: Vec3,
@@ -59,7 +62,8 @@ impl Plugin for PersistencePlugin {
             })
             .init_resource::<SpawnLocation>()
             .init_resource::<CurrentSystemData>()
-            .add_systems(PreStartup, load_player_state) // Load before camera setup
+            .init_resource::<PlayerName>()
+            .add_systems(PreStartup, (load_player_state, load_player_name)) // Load before camera setup
             .add_systems(Update, (check_system_change, auto_save_system));
     }
 }
@@ -293,6 +297,7 @@ fn check_system_change(
     q_player: Query<&GridCell<i64>, (Changed<GridCell<i64>>, With<ZenCamera>)>,
     db: Res<Database>,
     mut current_data: ResMut<CurrentSystemData>,
+    player_name: Res<PlayerName>,
 ) {
     if let Ok(cell) = q_player.get_single() {
         info!("Entered System: {:?}", cell);
@@ -313,7 +318,7 @@ fn check_system_change(
                         cell_y: cell.y,
                         cell_z: cell.z,
                         name: default_name.clone(),
-                        finder: "System AI".to_string(), // Auto-discovered
+                        finder: player_name.0.clone(), // Use dynamic name
                         note: "Autologged".to_string(),
                         date: "2026".to_string(),
                         object_type: "Star System".to_string(),
@@ -336,5 +341,14 @@ fn check_system_change(
             }
         }
         current_data.is_dirty = true;
+    }
+}
+
+fn load_player_name(db: Res<Database>, mut player_name: ResMut<PlayerName>) {
+    if let Ok(Some(name)) = db.get_setting("player_name") {
+        player_name.0 = name;
+        info!("PERSISTENCE: Welcome back, {}.", player_name.0);
+    } else {
+        player_name.0 = "Explorer".to_string(); // Default until set
     }
 }

@@ -5,6 +5,8 @@ use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::sync::{Arc, Mutex};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
 struct SavedStar {
@@ -52,7 +54,15 @@ pub struct Database {
 
 impl Database {
     pub fn open() -> Result<Self> {
-        let conn = Connection::open("universe.db")?;
+        let db_path = Self::get_db_path();
+        
+        // Ensure directory exists
+        if let Some(parent) = db_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        info!("PERSISTENCE: Opening database at {:?}", db_path);
+        let conn = Connection::open(db_path)?;
 
         // Execute schema creation in a batch
         conn.execute_batch(
@@ -92,6 +102,10 @@ impl Database {
                 vel_z REAL NOT NULL,
                 timestamp INTEGER NOT NULL,
                 throttle REAL DEFAULT 0.0
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );"
         )?;
 
@@ -299,5 +313,37 @@ impl Database {
             worlds.push(world?);
         }
         Ok(worlds)
+    }
+    
+    pub fn save_setting(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn get_db_path() -> PathBuf {
+        // In mobile, we might need different logic, but for desktop/bundled:
+        if let Some(data_dir) = dirs::data_dir() {
+            let path = data_dir.join("com.cognitedata.thesilentreach");
+            let _ = fs::create_dir_all(&path);
+            path.join("universe.db")
+        } else {
+            // Fallback to local (will likely crash in bundle, but better than nothing for dev)
+            PathBuf::from("universe.db")
+        }
     }
 }
