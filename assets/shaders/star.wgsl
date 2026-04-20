@@ -18,6 +18,8 @@ struct StarMaterial {
     flare_height: f32,
     flare_mode: u32,
     flare_enabled: u32,
+    flare_bias: u32,
+    _pad2: u32,
 };
 
 @group(2) @binding(0) var<uniform> material: StarMaterial;
@@ -242,36 +244,67 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     
     // --- 2. FLARES & CORONA (Performance Optimized Toggle) ---
     if (material.flare_enabled == 1u) {
-        let d = length(ro - rd * dot(ro, rd));
+        let closest_pt = ro - rd * dot(ro, rd);
+        let flare_dir = normalize(closest_pt);
+        var d = length(closest_pt);
         
+        // MAGNETAR MODE: Non-spherical fireball elongation
+        if (material.flare_mode == 2u) {
+            d = d * (1.0 - abs(flare_dir.y) * 0.4); // Elongate along poles
+        }
+
         if (d < 1.0) {
             let r_norm = (d - core_r) / (1.0 - core_r);
-            
-            // Determine the radial direction from the center
-            let flare_dir = normalize(in.local_pos);
-            
-            // 1. Create an evolving "time coordinate"
             let flow_time = time * material.flare_speed;
-
+            
+            var sample_dir = flare_dir;
+            var pulse_intensity = 1.0;
+            
+            if (material.flare_mode == 2u) {
+                // MAGNETAR MODE: Heartbeat subtle global throb behind continuous loop 
+                let pulse_phase = fract(time * material.flare_speed);
+                pulse_intensity = 0.8 + 0.2 * exp(-4.0 * pulse_phase);
+                
+                // MAGNETIC LOOPS: Bend vector towards equator for flux tubes
+                let loop_bend_strength = 2.0 * clamp(r_norm, 0.0, 1.0);
+                let loop_bend = vec3<f32>(0.0, -flare_dir.y * loop_bend_strength, 0.0);
+                sample_dir = normalize(flare_dir + loop_bend);
+            }
+            
             // 2. Sample noise with a "Warp" component to create roiling
-            // We use cross product or a fixed offset to ensure motion isn't just radial
-            let warp_coord = flare_dir * material.flare_scale;
+            let warp_coord = sample_dir * material.flare_scale;
             let roil = sfbm(warp_coord * 0.5 + flow_time * 0.2);
 
             // 3. Combine for the final sampling position
-            // Adding 'roil' into the coordinate creates the "twisting" filament look
-            let flare_pos = warp_coord + (roil * 2.0) + vec3<f32>(flow_time, flow_time * 0.5, flow_time) + vec3<f32>(material.seed);
+            let outward_flow = d * 2.0 - flow_time; 
+            let flare_pos = warp_coord + (roil * 2.0) + sample_dir * outward_flow + vec3<f32>(material.seed);
             
             var strands = 0.0;
             if (material.flare_mode == 0u) {
                 // UNIFORM DISTRIBUTED FLARES
                 strands = pow(sfbm(flare_pos), 4.0);
-            } else {
+            } else if (material.flare_mode == 1u) {
                 // RANDOM SPOTTY FLARES (Eruptions)
                 let spot_mask = pow(smoothstep(0.5, 0.8, sfbm(flare_pos * 0.08)), 6.0);
                 let detail = pow(sfbm(flare_pos), 3.0);
                 strands = spot_mask * detail * 25.0; 
+            } else {
+                // MAGNETAR BURSTS (Loops and Pulses)
+                let spot_mask = pow(smoothstep(0.4, 0.9, sfbm(flare_pos * 0.08)), 5.0);
+                let detail = pow(sfbm(flare_pos), 3.0);
+                strands = spot_mask * detail * 35.0 * pulse_intensity; 
             }
+            
+            // Apply Equatorial or Polar Bias
+            var bias_mask = 1.0;
+            if (material.flare_bias == 1u) {
+                // Polar Bias: Stronger near poles (Y = 1 and -1)
+                bias_mask = pow(smoothstep(0.75, 0.98, abs(flare_dir.y)), 3.0);
+            } else if (material.flare_bias == 2u) {
+                // Equatorial Bias: Stronger near equator (Y = 0)
+                bias_mask = pow(smoothstep(0.25, 0.0, abs(flare_dir.y)), 3.0);
+            }
+            strands *= bias_mask;
             
             // SURFACE MASK: Pins the strands to the surface silhouette
             let surface_noise = sfbm(normalize(in.local_pos) * 15.0 + material.seed) * 0.05;

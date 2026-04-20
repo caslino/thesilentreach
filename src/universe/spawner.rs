@@ -131,6 +131,7 @@ fn sync_star_presets(
                         material.flare_height = v.flare_height;
                         material.flare_mode = v.flare_mode;
                         material.flare_enabled = if v.flare_enabled { 1 } else { 0 };
+                        material.flare_bias = v.flare_bias;
                     }
                 }
 
@@ -826,7 +827,7 @@ fn spawn_star_with_data(
                             flare_height: visuals.flare_height,
                             flare_mode: visuals.flare_mode,
                             flare_enabled: if visuals.flare_enabled { 1 } else { 0 },
-                            _pad1: 0,
+                            flare_bias: visuals.flare_bias,
                             _pad2: 0,
                             star_type: data.star_type,
                         }
@@ -898,7 +899,7 @@ fn spawn_star_with_data(
                             flare_height: visuals.flare_height,
                             flare_mode: visuals.flare_mode,
                             flare_enabled: if visuals.flare_enabled { 1 } else { 0 },
-                            _pad1: 0,
+                            flare_bias: visuals.flare_bias,
                             _pad2: 0,
                             star_type: data.star_type,
                         }

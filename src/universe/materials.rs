@@ -37,7 +37,7 @@ pub struct StarMaterial {
     #[uniform(0)]
     pub flare_enabled: u32,
     #[uniform(0)]
-    pub _pad1: u32,
+    pub flare_bias: u32,
     #[uniform(0)]
     pub _pad2: u32,
 

@@ -40,7 +40,8 @@
     "flare_intensity": 5.5,
     "flare_height": 0.7,
     "flare_mode": 1,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "B_BlueWhite": {
     "_info": "Very hot and bright. Visually: Pale blue-white, active surface, strong flares.",
@@ -64,7 +65,8 @@
     "flare_intensity": 16.0,
     "flare_height": 0.45,
     "flare_mode": 1,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "A_White": {
     "_info": "Pure white. Visually: High brilliance, sharp features, moderate flares.",
@@ -88,7 +90,8 @@
     "flare_intensity": 10.0,
     "flare_height": 0.3,
     "flare_mode": 0,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "F_YellowWhite": {
     "_info": "Steady warmth. Visually: Cream white, clear granulation, gentle halo.",
@@ -112,7 +115,8 @@
     "flare_intensity": 6.5,
     "flare_height": 0.2,
     "flare_mode": 0,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "G_YellowDwarf": {
     "_info": "Sun-like. Visually: Deep orange-yellow, high-contrast granulation, dramatic rim.",
@@ -136,7 +140,8 @@
     "flare_intensity": 5.0,
     "flare_height": 0.15,
     "flare_mode": 0,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "K_OrangeDwarf": {
     "_info": "Cooler than Sun. Visually: Deep amber, soft granules, steady atmosphere.",
@@ -160,7 +165,8 @@
     "flare_intensity": 3.5,
     "flare_height": 0.1,
     "flare_mode": 0,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "M_RedDwarf": {
     "_info": "Cool, small, long-lived. Visually: Deep red, slow moving, heavy limb darkening.",
@@ -184,7 +190,8 @@
     "flare_intensity": 1.2,
     "flare_height": 0.3,
     "flare_mode": 0,
-    "flare_enabled": true
+    "flare_enabled": true,
+    "flare_bias": 0
   },
   "NeutronStar": {
     "_info": "Highly energized. Visually: Electric Blue, high-speed convection, sharp limb darkening.",
@@ -194,21 +201,22 @@
       1.0,
       1.0
     ],
-    "seed": 100.4,
-    "convection_scale": 50.5,
-    "convection_speed": 10.5,
-    "warp_intensity": 1.0,
-    "plasma_speed": 1.0,
-    "hot_spot_intensity": 1.8,
-    "corona_intensity": 0.5,
-    "rim_power": 1.0,
+    "seed": 10.4,
+    "convection_scale": 300.5,
+    "convection_speed": 1.0,
+    "warp_intensity": 0.9,
+    "plasma_speed": 0.5,
+    "hot_spot_intensity": 0.5,
+    "corona_intensity": 0.3,
+    "rim_power": 0.4,
     "intensity": 0.8,
-    "flare_scale": 10.0,
-    "flare_speed": 4.0,
-    "flare_intensity": 50.0,
-    "flare_height": 0.1,
-    "flare_mode": 1,
-    "flare_enabled": true
+    "flare_scale": 1000.5,
+    "flare_speed": 1.8,
+    "flare_intensity": 40.0,
+    "flare_height": 3.0,
+    "flare_mode": 2,
+    "flare_enabled": true,
+    "flare_bias": 1
   },
   "BlackHole": {
     "_info": "Singularity. Note: Flare_enabled false to prevent visual artifacts on the event horizon.",
@@ -222,7 +230,7 @@
     "convection_scale": 0.0,
     "convection_speed": 0.0,
     "warp_intensity": 0.0,
-    "plasma_speed": 0.0,
+    "plasma_speed": 100.0,
     "hot_spot_intensity": 0.0,
     "corona_intensity": 0.0,
     "rim_power": 0.0,
@@ -232,6 +240,7 @@
     "flare_intensity": 0.0,
     "flare_height": 0.0,
     "flare_mode": 0,
-    "flare_enabled": false
+    "flare_enabled": false,
+    "flare_bias": 0
   }
 }

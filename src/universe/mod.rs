@@ -99,6 +99,8 @@ pub struct StarVisuals {
     pub flare_mode: u32,
     /// Whether flares should be rendered at all (performance toggle)
     pub flare_enabled: bool,
+    /// Bias: 0 = Uniform, 1 = Polar, 2 = Equator
+    pub flare_bias: u32,
 }
 
 impl Default for StarVisuals {
@@ -120,6 +122,7 @@ impl Default for StarVisuals {
             flare_height: 0.2,
             flare_mode: 0,
             flare_enabled: true,
+            flare_bias: 0,
         }
     }
 }
