@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use big_space::FloatingOrigin;
+use big_space::prelude::*; 
 use futures_lite::future;
 
 pub struct TerrainPlugin;
@@ -328,7 +328,7 @@ fn spawn_terrain_patches(
     mut commands: Commands,
     mut q_tasks: Query<(Entity, &mut TerrainPatchTask)>,
     mut meshes: ResMut<Assets<Mesh>>,
-    q_parents: Query<&Parent>,
+    q_parents: Query<&ChildOf>,
     q_materials_planet: Query<&MeshMaterial3d<PlanetMaterial>>,
     q_materials_std: Query<&MeshMaterial3d<StandardMaterial>>,
 ) {
@@ -341,12 +341,12 @@ fn spawn_terrain_patches(
 
             if let Ok(parent) = q_parents.get(entity) {
                 // Try PlanetMaterial first
-                if let Ok(mat) = q_materials_planet.get(parent.get()) {
+                if let Ok(mat) = q_materials_planet.get(parent.parent()) {
                     commands.entity(entity).insert(mat.clone());
                     found_material = true;
                 }
                 // Try StandardMaterial (GPU Baker)
-                else if let Ok(mat) = q_materials_std.get(parent.get()) {
+                else if let Ok(mat) = q_materials_std.get(parent.parent()) {
                     commands.entity(entity).insert(mat.clone());
                     found_material = true;
                 }

@@ -73,7 +73,7 @@ fn toggle_recording(
 
             // Remove recording UI
             if let Some(entity) = state.ui_root {
-                commands.entity(entity).despawn_recursive();
+                commands.entity(entity).despawn();
                 state.ui_root = None;
             }
 
@@ -99,7 +99,7 @@ fn toggle_recording(
             info!("Recording Stopped");
         } else {
             // Start recording
-            let window = window_query.single();
+            let window = window_query.single().expect("Primary window not found");
             let width = window.resolution.physical_width() as u32;
             let height = window.resolution.physical_height() as u32;
 
@@ -186,7 +186,7 @@ fn capture_frame(
                 let frames_to_record = (state.time_accumulator / TARGET_DT).floor() as u32;
                 state.time_accumulator -= frames_to_record as f32 * TARGET_DT;
 
-                if let Ok(window_entity) = window_query.get_single() {
+                if let Ok(window_entity) = window_query.single() {
                     commands
                         .spawn((
                             Screenshot::window(window_entity),
@@ -207,7 +207,7 @@ fn on_screenshot_captured(
 ) {
     if let Some(sender) = &state.sender {
         // Retrieve the repeats from the component on the trigger entity
-        let repeats = if let Ok(frame_repeat) = query.get(trigger.entity()) {
+        let repeats = if let Ok(frame_repeat) = query.get(trigger.target()) {
             frame_repeat.0
         } else {
             1
@@ -215,7 +215,7 @@ fn on_screenshot_captured(
 
         // ScreenshotCaptured wraps the image in the first field (tuple struct)
         let image = &trigger.event().0;
-        let _ = sender.send((image.data.clone(), repeats));
+        let _ = sender.send((image.data.clone().expect("Image data is missing"), repeats));
     }
 }
 
@@ -289,7 +289,7 @@ fn cleanup_recording_message(
     for (entity, mut message) in query.iter_mut() {
         message.timer.tick(time.delta());
         if message.timer.finished() {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     }
 }

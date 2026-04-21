@@ -9,7 +9,7 @@ use crate::universe::{
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use big_space::{FloatingOrigin, GridCell, ReferenceFrame};
+use big_space::prelude::*;
 
 // use crate::universe::physics::GRID_SIZE; // Unused
 use bevy::ecs::system::SystemParam;
@@ -277,7 +277,7 @@ impl FromWorld for PlanetTextureAtlas {
 
 #[derive(Resource, Default)]
 pub struct SpawnTracker {
-    pub spawned_cells: HashMap<GridCell<i64>, Vec<Entity>>, // Multiple entities per cell for predefined systems
+    pub spawned_cells: HashMap<GridCell, Vec<Entity>>, // Multiple entities per cell for predefined systems
     pub spawned_sectors: HashMap<SectorIndex, Entity>,      // Distant GPU sectors
 }
 
@@ -293,12 +293,12 @@ pub struct SpawnTracker {
 #[derive(Resource, Default)]
 pub(crate) struct GalaxyMap {
     // Map Sector -> List of Stars in that sector
-    pub(crate) sectors: HashMap<SectorIndex, Vec<(GridCell<i64>, StarDetails)>>,
+    pub(crate) sectors: HashMap<SectorIndex, Vec<(GridCell, StarDetails)>>,
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct SectorTaskTracker {
-    tasks: HashMap<SectorIndex, Task<(SectorIndex, Vec<(GridCell<i64>, StarDetails)>)>>,
+    tasks: HashMap<SectorIndex, Task<(SectorIndex, Vec<(GridCell, StarDetails)>)>>,
 }
 
 #[derive(SystemParam)]
@@ -318,7 +318,7 @@ fn manage_galaxy_sectors(
     seed: Res<UniverseSeed>,
     db: Res<Database>,
     config: Res<crate::universe::UniverseConfig>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame (tracker/db logic handles optimization)
+    q_camera: Query<&GridCell, With<FloatingOrigin>>, // Run every frame (tracker/db logic handles optimization)
 ) {
     let Ok(camera_cell) = q_camera.get_single() else {
         return;
@@ -394,7 +394,7 @@ fn generate_sector_data(
     db: &Database,
     star_override: Option<crate::universe::StarType>,
     planet_override: Option<crate::universe::PlanetType>,
-) -> Vec<(GridCell<i64>, StarDetails)> {
+) -> Vec<(GridCell, StarDetails)> {
     let is_origin_sector = sector.x == 0 && sector.y == 0 && sector.z == 0;
     let has_override = star_override.is_some() || planet_override.is_some();
 
@@ -441,7 +441,7 @@ fn generate_sector_data(
     for x in start_x..end_x {
         for y in start_y..end_y {
             for z in start_z..end_z {
-                let cell = GridCell::<i64>::new(x, y, z);
+                let cell = GridCell::new(x, y, z);
 
                 if let Some((mut star_type, mut color, mut size)) =
                     crate::universe::star_common::get_star_data(x, y, z, seed.0)
@@ -502,8 +502,8 @@ fn sync_universe_view(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
     galaxy_map: Res<GalaxyMap>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>, // Run every frame
-    q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
+    q_camera: Query<&GridCell, With<FloatingOrigin>>, // Run every frame
+    q_big_space: Query<Entity, With<big_space::prelude::BigSpace>>,
     mut assets: SpawnerAssets,
     db: Res<Database>,
     render_config: Res<RenderConfig>,
@@ -548,7 +548,7 @@ fn sync_universe_view(
                     if !tracker.spawned_sectors.contains_key(&sector_idx) {
                         // Spawn GPU Sector
                         // Calculate Sector Origin Cell
-                        let origin_cell = GridCell::<i64>::new(
+                        let origin_cell = GridCell::new(
                             sector_idx.x * SECTOR_SIZE,
                             sector_idx.y * SECTOR_SIZE,
                             sector_idx.z * SECTOR_SIZE,
@@ -556,9 +556,10 @@ fn sync_universe_view(
 
                         let entity = commands
                             .spawn((
-                                Transform::default(),
-                                Visibility::default(), // Provides Transform/GlobalTransform/Visibility
-                                origin_cell,           // BigSpace moves it
+                                big_space::prelude::BigSpatialBundle {
+                                    cell: origin_cell,
+                                    ..default()
+                                },
                                 StarSector {
                                     index: sector_idx,
                                     seed: seed.0 as u32,
@@ -629,7 +630,7 @@ fn update_lod_scaling() {}
 fn despawn_distant_systems(
     mut commands: Commands,
     mut tracker: ResMut<SpawnTracker>,
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
+    q_camera: Query<&GridCell, With<FloatingOrigin>>,
     mut atlas: ResMut<PlanetTextureAtlas>,
     q_children: Query<&Children>,
     // Asset Cleanup Resources
@@ -664,15 +665,15 @@ fn despawn_distant_systems(
                 if let Ok(children) = q_children.get(*entity) {
                     for child in children.iter() {
                         // 1. Release Atlas Slot
-                        if let Some(slot) = atlas.slot_map.remove(child) {
+                        if let Some(slot) = atlas.slot_map.remove(&child) {
                             atlas.available_slots.push(slot);
                         }
 
                         // 2. Cleanup Unique Materials (Asset Leak Fix)
-                        if let Ok(mat_handle) = q_planet_mat.get(*child) {
+                        if let Ok(mat_handle) = q_planet_mat.get(child) {
                             planet_materials.remove(&mat_handle.0);
                         }
-                        if let Ok(mat_handle) = q_star_mat.get(*child) {
+                        if let Ok(mat_handle) = q_star_mat.get(child) {
                             star_materials.remove(&mat_handle.0);
                         }
                     }
@@ -713,7 +714,7 @@ pub struct SystemLabel;
 fn spawn_star_with_data(
     commands: &mut Commands,
     parent_id: Entity,
-    cell: GridCell<i64>,
+    cell: GridCell,
     data: &StarDetails,
     common_meshes: &Res<CommonMeshes>,
     star_materials: &mut ResMut<Assets<StarMaterial>>,
@@ -752,7 +753,10 @@ fn spawn_star_with_data(
     }
 
     let system_root = commands
-        .spawn((Transform::default(), Visibility::default(), cell))
+        .spawn(big_space::prelude::BigSpatialBundle {
+            cell,
+            ..default()
+        })
         .id();
     spawned_entities.push(system_root);
 
@@ -791,8 +795,8 @@ fn spawn_star_with_data(
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
                           mut events: EventWriter<crate::universe::StarClicked>| {
-                        events.send(crate::universe::StarClicked {
-                            entity: _trigger.entity(),
+                        events.write(crate::universe::StarClicked {
+                            entity: _trigger.target(),
                             cell,
                         });
                     },
@@ -856,8 +860,8 @@ fn spawn_star_with_data(
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
                           mut events: EventWriter<crate::universe::StarClicked>| {
-                        events.send(crate::universe::StarClicked {
-                            entity: _trigger.entity(),
+                        events.write(crate::universe::StarClicked {
+                            entity: _trigger.target(),
                             cell,
                         });
                     },
@@ -929,8 +933,8 @@ fn spawn_star_with_data(
                 .observe(
                     move |_trigger: Trigger<Pointer<Click>>,
                           mut events: EventWriter<crate::universe::StarClicked>| {
-                        events.send(crate::universe::StarClicked {
-                            entity: _trigger.entity(),
+                        events.write(crate::universe::StarClicked {
+                            entity: _trigger.target(),
                             cell,
                         });
                     },

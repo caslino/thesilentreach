@@ -6,7 +6,7 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use crate::player::camera::{Velocity, ZenCamera};
 use crate::universe::spawner::{GalaxyMap, SpawnTracker}; // Needed to find entity from cell
 use crate::universe::{PlanetDetails, SectorIndex, StarClicked, StarDetails, SystemSavedEvent};
-use big_space::GridCell;
+use big_space::prelude::*; 
 
 pub struct SystemConsolePlugin;
 
@@ -42,7 +42,7 @@ pub enum ConsoleFocus {
 pub struct ConsoleState {
     pub active: bool,
     pub spawn_mode: bool, // If true, we are in the spawn/jump menu
-    pub target_cell: Option<big_space::GridCell<i64>>,
+    pub target_cell: Option<big_space::prelude::GridCell>,
     pub target_entity: Option<Entity>, // Specific entity (Star or Planet)
     pub current_name: String,
     pub current_note: String,
@@ -387,7 +387,7 @@ fn handle_star_clicked_event(
     mut time: ResMut<Time<Virtual>>,
     db: Res<Database>,
     keys: Res<ButtonInput<KeyCode>>,
-    q_player: Query<(&GridCell<i64>, &Transform), With<ZenCamera>>,
+    q_player: Query<(&GridCell, &Transform), With<ZenCamera>>,
     tracker: Res<SpawnTracker>,
     q_children: Query<&Children>,
     q_transform: Query<&Transform>,
@@ -456,7 +456,7 @@ fn handle_star_clicked_event(
         }
 
         // Show UI
-        if let Ok(mut vis) = q_overlay.get_single_mut() {
+        if let Ok(mut vis) = q_overlay.single_mut() {
             *vis = Visibility::Visible;
         }
 
@@ -470,7 +470,7 @@ fn handle_star_clicked_event(
         state.current_name = "/spawn ".to_string();
         state.focus = ConsoleFocus::Name;
 
-        if let Ok(mut vis) = q_overlay.get_single_mut() {
+        if let Ok(mut vis) = q_overlay.single_mut() {
             *vis = Visibility::Visible;
         }
         time.pause();
@@ -505,8 +505,8 @@ fn console_input_system(
     // A. Handle Button Interactions (Even if console not fully 'active' in registry mode)
     for (interaction, spawn_btn) in q_buttons.iter_mut() {
         if *interaction == Interaction::Pressed {
-            spawn_events.send(SpawnCommandEvent(spawn_btn.0));
-            save_events.send(SystemSavedEvent {
+            spawn_events.write(SpawnCommandEvent(spawn_btn.0));
+            save_events.write(SystemSavedEvent {
                 name: format!("JUMPING TO {:?}", spawn_btn.0),
             });
             state.active = false;
@@ -514,7 +514,7 @@ fn console_input_system(
             state.current_name.clear();
             state.current_note.clear();
             
-            if let Ok(mut vis) = q_overlay.get_single_mut() {
+            if let Ok(mut vis) = q_overlay.single_mut() {
                 *vis = Visibility::Hidden;
             }
             time.unpause();
@@ -524,7 +524,7 @@ fn console_input_system(
     if keys.just_pressed(KeyCode::Escape) {
         state.active = false;
         state.target_entity = None; // Clear target on close to prevent stale data
-        if let Ok(mut vis) = q_overlay.get_single_mut() {
+        if let Ok(mut vis) = q_overlay.single_mut() {
             *vis = Visibility::Hidden;
         }
         time.unpause();
@@ -545,14 +545,14 @@ fn console_input_system(
             let parts: Vec<&str> = current_text.split_whitespace().collect();
             if parts.len() > 1 {
                 if let Some(star_type) = crate::universe::StarType::from_str(parts[1]) {
-                    spawn_events.send(SpawnCommandEvent(star_type));
-                    save_events.send(SystemSavedEvent {
+                    spawn_events.write(SpawnCommandEvent(star_type));
+                    save_events.write(SystemSavedEvent {
                         name: format!("JUMPING TO {:?}", star_type),
                     });
                     state.current_name.clear();
                     state.current_note.clear();
                     state.active = false;
-                    if let Ok(mut vis) = q_overlay.get_single_mut() {
+                    if let Ok(mut vis) = q_overlay.single_mut() {
                         *vis = Visibility::Hidden;
                     }
                     time.unpause();
@@ -585,7 +585,7 @@ fn console_input_system(
                     info!("Saved system system: {} | Note: {}", name, note);
 
                     // Trigger Toast
-                    save_events.send(SystemSavedEvent { name: name.clone() });
+                    save_events.write(SystemSavedEvent { name: name.clone() });
                 }
             }
         }
@@ -594,7 +594,7 @@ fn console_input_system(
         state.current_note.clear();
         state.active = false;
         state.target_entity = None; // Clear target on save too
-        if let Ok(mut vis) = q_overlay.get_single_mut() {
+        if let Ok(mut vis) = q_overlay.single_mut() {
             *vis = Visibility::Hidden;
         }
         time.unpause();
@@ -657,7 +657,7 @@ fn console_input_system(
     // Name Logic
     let mut is_named = false;
 
-    if let Ok((mut txt, mut color)) = q_text_set.p0().get_single_mut() {
+    if let Ok((mut txt, mut color)) = q_text_set.p0().single_mut() {
         let cursor = if state.focus == ConsoleFocus::Name {
             cursor_char
         } else {
@@ -682,7 +682,7 @@ fn console_input_system(
     }
 
     // Named By Logic
-    if let Ok(mut txt) = q_text_set.p3().get_single_mut() {
+    if let Ok(mut txt) = q_text_set.p3().single_mut() {
         if is_named {
             txt.0 = format!("Named by: {}", player_name.0);
         } else {
@@ -691,7 +691,7 @@ fn console_input_system(
     }
 
     // Composition Logic
-    if let Ok(mut txt) = q_text_set.p4().get_single_mut() {
+    if let Ok(mut txt) = q_text_set.p4().single_mut() {
         let mut desc = "Scanning...".to_string();
 
         let mut entity_to_check = state.target_entity;
@@ -743,7 +743,7 @@ fn console_input_system(
     }
 
     // Target Label Logic
-    if let Ok(mut txt) = q_text_set.p5().get_single_mut() {
+    if let Ok(mut txt) = q_text_set.p5().single_mut() {
         if let Some(e) = state.target_entity {
             // Try to find the Text2d child which has the label?
             // Actually, SystemLabel is on the text child of the entity usually?
@@ -787,13 +787,13 @@ fn console_input_system(
     }
 
     // Coords Logic
-    if let Ok(mut txt) = q_text_set.p2().get_single_mut() {
+    if let Ok(mut txt) = q_text_set.p2().single_mut() {
         if let Some(cell) = state.target_cell {
             txt.0 = format!("Coordinates: [{}, {}, {}]", cell.x, cell.y, cell.z);
         }
     }
 
-    if let Ok(mut txt) = q_text_set.p1().get_single_mut() {
+    if let Ok(mut txt) = q_text_set.p1().single_mut() {
         let cursor = if state.focus == ConsoleFocus::Note {
             cursor_char
         } else {
@@ -815,7 +815,7 @@ fn handle_spawn_command_event(
     mut p_config: ResMut<crate::persistence::PersistenceConfig>,
     mut tracker: ResMut<SpawnTracker>,
     mut galaxy_map: ResMut<GalaxyMap>,
-    mut q_player: Query<(&mut GridCell<i64>, &mut Transform, &mut Velocity), With<ZenCamera>>,
+    mut q_player: Query<(&mut GridCell, &mut Transform, &mut Velocity), With<ZenCamera>>,
     mut commands: Commands,
 ) {
     for ev in events.read() {
@@ -836,12 +836,12 @@ fn handle_spawn_command_event(
         // Remove from SpawnTracker so it despawns and respawns
         if let Some(entities) = tracker.spawned_cells.remove(&origin_cell) {
             for entity in entities {
-                commands.entity(entity).despawn_recursive();
+                commands.entity(entity).despawn();
             }
         }
 
         // 3. Teleport Player
-        if let Ok((mut cell, mut tf, mut vel)) = q_player.get_single_mut() {
+        if let Ok((mut cell, mut tf, mut vel)) = q_player.single_mut() {
             *cell = origin_cell;
             vel.0 = Vec3::ZERO;
 
@@ -862,12 +862,12 @@ fn handle_spawn_command_event(
 fn teleport_to_origin_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut q_player: Query<
-        (&mut GridCell<i64>, &mut crate::player::camera::Velocity),
+        (&mut GridCell, &mut crate::player::camera::Velocity),
         With<ZenCamera>,
     >,
 ) {
     if keys.just_pressed(KeyCode::KeyO) {
-        if let Ok((mut cell, mut vel)) = q_player.get_single_mut() {
+        if let Ok((mut cell, mut vel)) = q_player.single_mut() {
             *cell = GridCell::new(0, 0, 0);
             vel.0 = Vec3::ZERO;
             info!("PLAYER: Teleported to Origin System (0,0,0)");

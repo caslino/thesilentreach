@@ -1,7 +1,13 @@
-/target
-universe.db
-assets/.DS_Store
-.gitignore
+# Rust
+target/
+**/*.rs.bk
+
+# cargo-mobile2
+.cargo/
+/gen
+
+# macOS
 .DS_Store
+
 recordings/
 artifacts/

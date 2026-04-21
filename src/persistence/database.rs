@@ -1,6 +1,6 @@
 use crate::universe::{SectorIndex, StarDetails};
 use bevy::prelude::*;
-use big_space::GridCell;
+use big_space::prelude::*; 
 use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -156,7 +156,7 @@ impl Database {
     pub fn save_sector_data(
         &self,
         sector: SectorIndex,
-        data: &Vec<(GridCell<i64>, StarDetails)>,
+        data: &Vec<(GridCell, StarDetails)>,
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
@@ -184,7 +184,7 @@ impl Database {
     pub fn get_sector_data(
         &self,
         sector: SectorIndex,
-    ) -> Result<Option<Vec<(GridCell<i64>, StarDetails)>>> {
+    ) -> Result<Option<Vec<(GridCell, StarDetails)>>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt =
             conn.prepare("SELECT data FROM sectors WHERE x = ?1 AND y = ?2 AND z = ?3")?;
@@ -263,7 +263,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_discovery(&self, cell: GridCell<i64>) -> Result<Option<DiscoveredWorld>> {
+    pub fn get_discovery(&self, cell: GridCell) -> Result<Option<DiscoveredWorld>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT cell_x, cell_y, cell_z, name, finder, note, date, object_type 

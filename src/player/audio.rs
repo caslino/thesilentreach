@@ -2,7 +2,7 @@ use crate::player::camera::{Velocity, ZenCamera};
 use crate::universe::physics::GRID_SIZE;
 use crate::universe::{Mass, Radius};
 use bevy::prelude::*;
-use big_space::GridCell;
+use big_space::prelude::*; 
 use rand::seq::SliceRandom;
 
 pub struct ZenAudioPlugin;
@@ -60,7 +60,7 @@ fn setup_engine_audio(
                 AudioPlayer::new(assets.engine_hum.clone()),
                 PlaybackSettings {
                     mode: bevy::audio::PlaybackMode::Loop,
-                    volume: bevy::audio::Volume::new(0.0), // Start silent
+                    volume: bevy::audio::Volume::Linear(0.0), // Start silent
                     ..default()
                 },
                 EngineHumAudio,
@@ -74,7 +74,7 @@ fn update_engine_hum(
     mut q_audio: Query<(&mut AudioSink, &mut AudioPlayer), With<EngineHumAudio>>,
 ) {
     if let Ok((velocity, camera_settings)) = q_ship.get_single() {
-        if let Ok((sink, _player)) = q_audio.get_single_mut() {
+        if let Ok((mut sink, _player)) = q_audio.get_single_mut() {
             let speed = velocity.0.length();
             let max_speed = camera_settings.max_speed;
 
@@ -85,7 +85,7 @@ fn update_engine_hum(
             let target_volume = 0.05 + ratio * 0.35;
             let target_pitch = 0.8 + ratio * 0.4;
 
-            sink.set_volume(target_volume);
+            sink.set_volume(bevy::audio::Volume::Linear(target_volume));
             sink.set_speed(target_pitch);
         }
     }
@@ -96,8 +96,8 @@ fn proximity_chimes(
     mut timer: ResMut<ChimeTimer>,
     time: Res<Time>,
     assets: Res<AudioAssets>,
-    q_ship: Query<(&GridCell<i64>, &Transform), With<ZenCamera>>,
-    q_mass: Query<(&GridCell<i64>, &Transform, &Mass, &Radius)>,
+    q_ship: Query<(&GridCell, &Transform), With<ZenCamera>>,
+    q_mass: Query<(&GridCell, &Transform, &Mass, &Radius)>,
 ) {
     if !timer.0.tick(time.delta()).just_finished() {
         return;
@@ -135,7 +135,7 @@ fn proximity_chimes(
                     AudioPlayer::new(assets.chime.clone()),
                     PlaybackSettings {
                         mode: bevy::audio::PlaybackMode::Despawn, // Play once and die
-                        volume: bevy::audio::Volume::new(0.3),
+                        volume: bevy::audio::Volume::Linear(0.3),
                         speed: pitch,
                         ..default()
                     },

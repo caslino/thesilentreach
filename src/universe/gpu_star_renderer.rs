@@ -1,20 +1,20 @@
 use crate::universe::physics::GRID_SIZE;
 use crate::universe::{SECTOR_SIZE, SectorIndex};
 use bevy::{
-    core_pipeline::core_3d::graph::Core3d,
+    core_pipeline::core_3d::{graph::Core3d, Transparent3d},
     ecs::query::QueryItem,
     ecs::system::SystemParamItem,
     pbr::{MeshPipeline, MeshViewBindGroup, SetMeshViewBindGroup},
     prelude::*,
-    render::render_phase::{RenderCommandResult, TrackedRenderPass, ViewSortedRenderPhases},
-    render::sync_world::MainEntity,
-    render::view::ExtractedView,
     render::{
         Render, RenderApp, RenderSet,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
+        extract_component::{ExtractComponent, ExtractComponentPlugin, ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
+        render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner},
+        render_phase::{AddRenderCommand, DrawFunctions, PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases},
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
+        sync_world::MainEntity,
+        view::{ExtractedView, RetainedViewEntity},
     },
 };
 use bytemuck::{Pod, Zeroable};
@@ -458,8 +458,6 @@ fn prepare_star_buffers(
 }
 
 // Queue
-use bevy::core_pipeline::core_3d::Transparent3d;
-use bevy::render::render_phase::{AddRenderCommand, DrawFunctions, SetItemPipeline};
 
 // Define Draw Function
 type DrawStarSector = (
@@ -498,15 +496,13 @@ impl bevy::render::render_phase::RenderCommand<Transparent3d> for DrawStarSector
     }
 }
 
-use bevy::render::render_phase::PhaseItemExtraIndex;
-// use bevy::render::render_phase::SetBindGroup;
 
 // Queue System
 fn queue_star_bind_group(
     _commands: Commands,
     transparent_3d_draw_functions: Res<DrawFunctions<Transparent3d>>,
     render_pipeline: Res<StarRenderPipeline>,
-    views: Query<Entity, (With<ExtractedView>, With<MeshViewBindGroup>)>,
+    views: Query<&ExtractedView, With<MeshViewBindGroup>>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     mut sectors: Query<(Entity, &mut StarSectorBuffers)>,
     mut stars_to_compute: ResMut<StarsToCompute>,
@@ -516,14 +512,8 @@ fn queue_star_bind_group(
         .get_id::<DrawStarSector>()
         .unwrap();
 
-    for view_entity in views.iter() {
-        // DEBUG: Print components
-        // if let Some(entity_ref) = commands.get_entity(view_entity) {
-        //    info!("View Entity Components: {:?}", entity_ref.archetype().components()); // Hard to access in system
-        // }
-        // We can't easily print names without World access.
-
-        let Some(phase) = phases.get_mut(&view_entity) else {
+    for view in views.iter() {
+        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
@@ -541,7 +531,8 @@ fn queue_star_bind_group(
                 draw_function,
                 distance: 0.0,
                 batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::NONE,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: false,
             });
         }
     }

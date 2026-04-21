@@ -11,6 +11,7 @@ use bevy::{
         renderer::RenderDevice,
         view::ExtractedView,
     },
+    render::view::RetainedViewEntity,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -299,7 +300,7 @@ use bevy::render::render_phase::ViewSortedRenderPhases;
 fn queue_orbit_draw(
     transparent_3d_draw_functions: Res<DrawFunctions<Transparent3d>>,
     render_pipeline: Res<OrbitRenderPipeline>,
-    views: Query<Entity, With<ExtractedView>>,
+    views: Query<&ExtractedView>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     query: Query<(Entity, &OrbitGPUData)>,
 ) {
@@ -308,8 +309,8 @@ fn queue_orbit_draw(
         .get_id::<DrawOrbitBatch>()
         .unwrap();
 
-    for view_entity in views.iter() {
-        let Some(phase) = phases.get_mut(&view_entity) else {
+    for view in views.iter() {
+        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
@@ -320,7 +321,8 @@ fn queue_orbit_draw(
                 draw_function,
                 distance: 1000.0, // Sort order?
                 batch_range: 0..1,
-                extra_index: bevy::render::render_phase::PhaseItemExtraIndex::NONE,
+                extra_index: bevy::render::render_phase::PhaseItemExtraIndex::None,
+                indexed: false,
             });
         }
     }

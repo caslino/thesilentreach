@@ -2,7 +2,7 @@ use crate::universe::physics::GRID_SIZE;
 use crate::universe::{StarfieldConfig, StarfieldVisuals};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
-use big_space::{FloatingOrigin, GridCell};
+use big_space::prelude::*;
 
 pub struct SkyPlugin;
 
@@ -179,7 +179,7 @@ fn hash_2d(x: f32, y: f32) -> f32 {
 
 // Start of Update System
 fn update_sky_position(
-    q_camera: Query<(&GridCell<i64>, &Transform), With<FloatingOrigin>>,
+    q_camera: Query<(&GridCell, &Transform), With<FloatingOrigin>>,
     mut materials: ResMut<Assets<StarfieldMaterial>>,
     q_sky: Query<&MeshMaterial3d<StarfieldMaterial>, With<SkySphere>>,
     time: Res<Time>,

@@ -1,6 +1,6 @@
 use crate::universe::pulsar::PulsarMap;
 use bevy::prelude::*;
-use big_space::{FloatingOrigin, GridCell};
+use big_space::prelude::*; 
 
 pub struct NavigationPlugin;
 
@@ -18,7 +18,7 @@ pub struct NavigationClues {
 }
 
 fn update_navigation_clues(
-    q_camera: Query<&GridCell<i64>, With<FloatingOrigin>>,
+    q_camera: Query<&GridCell, With<FloatingOrigin>>,
     mut clues: ResMut<NavigationClues>,
     pulsar_map: Res<PulsarMap>,
 ) {

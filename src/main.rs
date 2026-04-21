@@ -11,6 +11,7 @@ use thesilentreach::universe::{RenderConfig, RenderMode, UniversePlugin};
 
 mod effects;
 
+#[bevy_main]
 fn main() {
     eprintln!("--- THE SILENT REACH STARTUP (FIX V1.3) ---");
     
@@ -122,7 +123,7 @@ fn main() {
                 })
                 .disable::<bevy::log::LogPlugin>(),
         )
-        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(UniversePlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(effects::warp::WarpPlugin)

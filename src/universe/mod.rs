@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use big_space::{BigSpaceCommands, BigSpacePlugin, ReferenceFrame};
+use big_space::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -454,7 +454,7 @@ pub struct PlanetDetails(pub PlanetType);
 #[derive(Event)]
 pub struct StarClicked {
     pub entity: Entity,
-    pub cell: big_space::GridCell<i64>,
+    pub cell: GridCell,
 }
 
 #[derive(Event)]
@@ -519,7 +519,7 @@ impl Plugin for UniversePlugin {
                 star_override,
                 planet_override,
             })
-            .add_plugins(BigSpacePlugin::<i64>::default())
+            .add_plugins(BigSpaceDefaultPlugins)
             .add_systems(PreStartup, setup_universe)
             .add_plugins(spawner::StarSystemSpawnerPlugin)
             .add_plugins(sky::SkyPlugin)
@@ -534,13 +534,14 @@ impl Plugin for UniversePlugin {
             // Reduced ambient light for proper shadows and 3D planet appearance
             .insert_resource(AmbientLight {
                 color: Color::WHITE,
-                brightness: 15.0, // Low for space (was 80.0 - too bright, washed out shadows)
+                brightness: 15.0,
+                affects_lightmapped_meshes: false,
             });
     }
 }
 
 pub fn setup_universe(mut commands: Commands) {
-    commands.spawn_big_space(ReferenceFrame::<i64>::default(), |_| {});
+    commands.spawn(big_space::prelude::BigSpaceRootBundle::default());
 }
 
 pub const SECTOR_SIZE: i64 = 10;
@@ -553,7 +554,7 @@ pub struct SectorIndex {
 }
 
 impl SectorIndex {
-    pub fn from_cell(cell: big_space::GridCell<i64>) -> Self {
+    pub fn from_cell(cell: GridCell) -> Self {
         Self {
             x: cell.x.div_euclid(SECTOR_SIZE),
             y: cell.y.div_euclid(SECTOR_SIZE),
@@ -562,9 +563,9 @@ impl SectorIndex {
     }
 }
 
-pub fn get_solar_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)> {
+pub fn get_solar_system_data() -> Vec<(GridCell, StarDetails)> {
     let mut systems = Vec::new();
-    let center = big_space::GridCell::new(0, 0, 0);
+    let center = GridCell::new(0, 0, 0);
 
     let planets = vec![
         DetailedPlanet {
@@ -670,9 +671,9 @@ pub fn get_solar_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)> {
     systems
 }
 
-pub fn get_jupiter_system_data() -> Vec<(big_space::GridCell<i64>, StarDetails)> {
+pub fn get_jupiter_system_data() -> Vec<(GridCell, StarDetails)> {
     let mut systems = Vec::new();
-    let center = big_space::GridCell::new(0, 0, 0);
+    let center = GridCell::new(0, 0, 0);
 
     // 1. Jupiter (The Primary)
     // Modeled as a PlanetType::GasGiant but we place it as the "Star" of this system logic for simplicity,

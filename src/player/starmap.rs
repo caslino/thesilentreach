@@ -110,11 +110,12 @@ fn update_starmap_content(
     mut commands: Commands,
     q_root: Query<(Entity, &Visibility, Option<&StarMapDirty>), With<StarMapRoot>>,
     q_content: Query<Entity, With<StarMapContent>>,
+    q_children: Query<&Children>,
     db: Res<Database>,
     current_data: Res<CurrentSystemData>,
     mut events: EventReader<SystemSavedEvent>,
 ) {
-    let Ok((root_entity, vis, dirty)) = q_root.get_single() else {
+    let Ok((root_entity, vis, dirty)) = q_root.single() else {
         return;
     };
     if *vis == Visibility::Hidden {
@@ -133,10 +134,14 @@ fn update_starmap_content(
         commands.entity(root_entity).remove::<StarMapDirty>();
     }
 
-    let Ok(content_entity) = q_content.get_single() else {
+    let Ok(content_entity) = q_content.single() else {
         return;
     };
-    commands.entity(content_entity).despawn_descendants();
+    if let Ok(children) = q_children.get(content_entity) {
+        for child in children.iter() {
+            commands.entity(child).despawn();
+        }
+    }
 
     let my_cell = current_data.cell;
 

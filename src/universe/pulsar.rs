@@ -1,12 +1,12 @@
 use crate::universe::UniverseSeed;
 use bevy::prelude::*;
-use big_space::GridCell;
+use big_space::prelude::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 #[derive(Clone, Debug)]
 pub struct Pulsar {
-    pub position: GridCell<i64>,
+    pub position: GridCell,
     pub frequency: f32,
 }
 

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use big_space::GridCell;
+use big_space::prelude::*;
 pub mod database;
 pub use database::Database; // Re-export for public use
 pub use database::DiscoveredWorld as Discovery;
@@ -7,7 +7,7 @@ pub use database::PlayerState;
 
 #[derive(Resource, Default)]
 pub struct CurrentSystemData {
-    pub cell: GridCell<i64>,
+    pub cell: GridCell,
     pub discovery: Option<Discovery>,
     pub is_dirty: bool, // Trigger UI update
 }
@@ -17,7 +17,7 @@ pub struct PlayerName(pub String);
 
 #[derive(Resource, Default)]
 pub struct SpawnLocation {
-    pub cell: GridCell<i64>,
+    pub cell: GridCell,
     pub local_pos: Vec3,
     pub velocity: Option<Vec3>, // New field for loading state
     pub throttle: f32,          // Added throttle persistence
@@ -230,7 +230,7 @@ fn auto_save_system(
     // Run every 5 seconds
     mut timer: Local<f32>,
     db: Res<Database>,
-    q_player: Query<(&GridCell<i64>, &Transform, &Velocity), With<ZenCamera>>,
+    q_player: Query<(&GridCell, &Transform, &Velocity), With<ZenCamera>>,
     input: Res<VehicleInput>, // Added input resource
     config: Res<PersistenceConfig>,
 ) {
@@ -275,7 +275,7 @@ fn auto_save_system(
 // System to detect cell change and query registry
 // Helper to check standard deterministic logic (Must match spawner.rs)
 //Ideally this should be shared, but for now we duplicate the simple check
-fn has_star(cell: &GridCell<i64>) -> bool {
+fn has_star(cell: &GridCell) -> bool {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     // Assuming UniverseSeed is consistent (Default 0). If we have a seed resource, we should use it.
     // For now, let's assume seed 0 or pass it in.
@@ -294,7 +294,7 @@ fn has_star(cell: &GridCell<i64>) -> bool {
 }
 
 fn check_system_change(
-    q_player: Query<&GridCell<i64>, (Changed<GridCell<i64>>, With<ZenCamera>)>,
+    q_player: Query<&GridCell, (Changed<GridCell>, With<ZenCamera>)>,
     db: Res<Database>,
     mut current_data: ResMut<CurrentSystemData>,
     player_name: Res<PlayerName>,

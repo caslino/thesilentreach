@@ -3,7 +3,7 @@ use crate::player::prediction::AntiCollisionState;
 use crate::universe::physics::{GRAVITY_CONSTANT, GRID_SIZE, REPULSION_STRENGTH};
 use crate::universe::{Mass, Radius};
 use bevy::prelude::*;
-use big_space::{FloatingOrigin, GridCell, ReferenceFrame};
+use big_space::prelude::*;
 
 const SHIP_MASS: f32 = 1000.0; // kg
 const THRUST_FORCE: f32 = 200_000.0; // (Increased from 100k)
@@ -56,14 +56,13 @@ impl Default for ZenCamera {
 }
 
 use crate::persistence::SpawnLocation;
-use rand::Rng;
 
 #[derive(Component)]
 pub struct HeadCamera;
 
 fn setup_camera(
     mut commands: Commands,
-    q_big_space: Query<Entity, With<ReferenceFrame<i64>>>,
+    q_big_space: Query<Entity, With<big_space::prelude::BigSpace>>,
     mut spawn_loc: ResMut<SpawnLocation>,
     mut vehicle_input: ResMut<VehicleInput>,
 ) {
@@ -89,7 +88,7 @@ fn setup_camera(
         );
     }
 
-    commands.entity(big_space_id).with_children(|parent| {
+    commands.entity(big_space_id.expect("BigSpace not found")).with_children(|parent| {
         // --- 1. SHIP ROOT (Movement/Collision) ---
         parent
             .spawn((
@@ -155,8 +154,8 @@ fn ship_controls(
     // Find Head Camera Child Entity
     let mut head_entity = None;
     for child in children.iter() {
-        if q_head.get(*child).is_ok() {
-            head_entity = Some(*child);
+        if q_head.get(child).is_ok() {
+            head_entity = Some(child);
             break;
         }
     }
@@ -244,8 +243,8 @@ fn ship_controls(
 }
 
 fn apply_gravity(
-    mut ship_query: Query<(&GridCell<i64>, &Transform, &mut Velocity), With<ZenCamera>>,
-    mass_query: Query<(&GridCell<i64>, &Transform, &Mass, &Radius)>,
+    mut ship_query: Query<(&GridCell, &Transform, &mut Velocity), With<ZenCamera>>,
+    mass_query: Query<(&GridCell, &Transform, &Mass, &Radius)>,
     config: Res<GravityConfig>,
     time: Res<Time>,
 ) {
@@ -317,7 +316,7 @@ fn physics_step(
     mut query: Query<(&mut Transform, &mut Velocity, &mut AngularVelocity, &Mass)>,
     time: Res<Time>,
 ) {
-    let (mut transform, mut velocity, mut ang_vel, _mass) = query.single_mut();
+    let (mut transform, mut velocity, mut ang_vel, _mass) = query.single_mut().expect("Physics entity not found");
     let dt = time.delta_secs();
 
     // --- Linear Physics ---

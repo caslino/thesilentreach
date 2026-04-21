@@ -19,7 +19,7 @@ use bevy::{
         view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
-use thesilentreach::player::camera::{Velocity, ZenCamera};
+use crate::player::camera::{Velocity, ZenCamera};
 
 pub struct WarpPlugin;
 
@@ -95,7 +95,7 @@ fn update_warp_intensity(
 
     for (ship_entity, velocity, zen_cam_opt, children, mut timer_opt) in q_ship.iter_mut() {
         let speed = velocity.0.length();
-        let max_speed = zen_cam_opt.map(|z| z.max_speed).unwrap_or(200_000.0);
+        let max_speed = if let Some(z) = zen_cam_opt { z.max_speed } else { 200_000.0 };
 
         // Threshold: 95% of max speed
         let threshold_speed = max_speed * 0.95;
@@ -133,8 +133,9 @@ fn update_warp_intensity(
         }
 
         // Apply to Camera(s)
-        for child in children.iter() {
+        for child in children {
             if let Ok((cam_entity, settings_opt)) = q_cam.get_mut(*child) {
+
                 if let Some(mut settings) = settings_opt {
                     // Smoothly interpolate current intensity to target?
                     // For now, direct set.

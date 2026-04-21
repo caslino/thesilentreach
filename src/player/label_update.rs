@@ -2,7 +2,7 @@ use crate::persistence::Database;
 use crate::universe::spawner::SystemLabel;
 use crate::universe::{Planet, Star};
 use bevy::prelude::*;
-use big_space::GridCell;
+use big_space::prelude::*;
 
 pub struct LabelUpdatePlugin;
 
@@ -25,7 +25,7 @@ fn update_billboards(
     >,
     q_camera: Query<&GlobalTransform, With<crate::player::camera::ZenCamera>>,
 ) {
-    let Ok(cam_tf) = q_camera.get_single() else {
+    let Ok(cam_tf) = q_camera.single() else {
         return;
     };
     let _cam_pos = cam_tf.translation();
@@ -61,11 +61,11 @@ fn update_billboards(
 fn update_system_labels(
     mut commands: Commands,
     mut q_labels: Query<
-        (Entity, &mut Text2d, &Parent, Option<&mut LastLabelUpdate>),
+        (Entity, &mut Text2d, &ChildOf, Option<&mut LastLabelUpdate>),
         With<SystemLabel>,
     >,
     q_parents: Query<(Option<&Star>, Option<&Planet>)>,
-    q_grandparents: Query<&GridCell<i64>>, // Parent (Star/Planet) -> Parent (SystemRoot/GridCell)
+    q_grandparents: Query<&GridCell>, // Parent (Star/Planet) -> Parent (SystemRoot/GridCell)
     // Wait, Star is child of SystemRoot. SystemRoot has GridCell.
     // Planet is child of SystemRoot too?
     // Let's check spawner.rs.
@@ -75,7 +75,7 @@ fn update_system_labels(
     // Planet: root.spawn(...).with_children(|planet| ... with label ...).
     // So Label -> Planet -> SystemRoot(GridCell).
     // Hierarchy is consistent: Label -> Object -> SystemRoot.
-    q_hierarchy: Query<&Parent>,
+    q_hierarchy: Query<&ChildOf>,
     db: Res<Database>,
     time: Res<Time>,
 ) {
@@ -93,16 +93,16 @@ fn update_system_labels(
                 .insert((LastLabelUpdate(now), Billboard)); // Add Billboard here!
         }
 
-        if let Ok(object_parent) = q_hierarchy.get(**parent) {
+        if let Ok(object_parent) = q_hierarchy.get(parent.parent()) {
             // Determine Type
-            let (_is_star, is_planet) = if let Ok((s, p)) = q_parents.get(**parent) {
+            let (_is_star, is_planet) = if let Ok((s, p)) = q_parents.get(parent.parent()) {
                 (s.is_some(), p.is_some())
             } else {
                 (false, false)
             };
 
-            if let Ok(root_parent) = q_hierarchy.get(**object_parent) {
-                if let Ok(cell) = q_grandparents.get(**root_parent) {
+            if let Ok(root_parent) = q_hierarchy.get(object_parent.parent()) {
+                if let Ok(cell) = q_grandparents.get(root_parent.parent()) {
                     match db.get_discovery(*cell) {
                         Ok(Some(discovery)) => {
                             let default_name = format!("S {},{},{}", cell.x, cell.y, cell.z);

@@ -1,0 +1,8 @@
+[app]
+name = "thesilentreach"
+stylized-name = "Thesilentreach"
+identifier = "com.wbt.thesilentreach"
+template-pack = "bevy"
+
+[apple]
+development-team = "BLD2VHAK9Y"

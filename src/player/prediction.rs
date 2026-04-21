@@ -2,7 +2,7 @@ use crate::player::camera::{Velocity, ZenCamera};
 use crate::universe::physics::{GRAVITY_CONSTANT, GRID_SIZE};
 use crate::universe::{Mass, Radius};
 use bevy::prelude::*;
-use big_space::GridCell;
+use big_space::prelude::*;
 
 pub struct TrajectoryPlugin;
 
@@ -32,8 +32,8 @@ impl Default for PredictionTimer {
 fn update_trajectory_prediction(
     mut timer: ResMut<PredictionTimer>,
     time: Res<Time>,
-    q_ship: Query<(&GridCell<i64>, &Transform, &Velocity), With<ZenCamera>>,
-    q_mass: Query<(&GridCell<i64>, &Transform, &Mass, &Radius)>,
+    q_ship: Query<(&GridCell, &Transform, &Velocity), With<ZenCamera>>,
+    q_mass: Query<(&GridCell, &Transform, &Mass, &Radius)>,
     mut acs_state: ResMut<AntiCollisionState>,
 ) {
     if !timer.0.tick(time.delta()).just_finished() {
