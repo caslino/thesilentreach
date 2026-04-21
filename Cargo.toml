@@ -35,10 +35,12 @@ homepage = "https://github.com/caslino/thesilentreach"
 out-dir = "./artifacts"
 resources = ["assets"]
 icons = ["assets/icons/icon.icns", "assets/icons/icon_1024.png"]
+formats = ["nsis", "wix", "app", "dmg"]
 
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"
 entitlements = "assets/macos/entitlements.plist"
 
 [package.metadata.packager.windows]
-# windows-specific config here
+# Windows signing config would go here
+
