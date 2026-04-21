@@ -5,7 +5,10 @@ pub struct MobileInputPlugin;
 impl Plugin for MobileInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VehicleInput>()
-            .add_systems(Update, update_vehicle_input);
+            .add_systems(
+                Update,
+                update_vehicle_input.run_if(crate::player::interaction::console_is_inactive),
+            );
     }
 }
 

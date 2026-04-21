@@ -17,9 +17,9 @@ impl Plugin for SystemConsolePlugin {
             .add_systems(
                 Update,
                 (
-                    console_input_system,
-                    handle_star_clicked_event,
-                    teleport_to_origin_system,
+                    console_input_system.run_if(console_is_active),
+                    handle_star_clicked_event.run_if(console_is_inactive),
+                    teleport_to_origin_system.run_if(console_is_inactive),
                     handle_spawn_command_event,
                 )
                     .chain(),
@@ -32,7 +32,7 @@ impl Plugin for SystemConsolePlugin {
 pub struct SpawnCommandEvent(pub crate::universe::StarType);
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
-enum ConsoleFocus {
+pub enum ConsoleFocus {
     #[default]
     Name,
     Note,
@@ -42,11 +42,19 @@ enum ConsoleFocus {
 pub struct ConsoleState {
     pub active: bool,
     pub spawn_mode: bool, // If true, we are in the spawn/jump menu
-    target_cell: Option<big_space::GridCell<i64>>,
-    target_entity: Option<Entity>, // Specific entity (Star or Planet)
-    current_name: String,
-    current_note: String,
-    focus: ConsoleFocus,
+    pub target_cell: Option<big_space::GridCell<i64>>,
+    pub target_entity: Option<Entity>, // Specific entity (Star or Planet)
+    pub current_name: String,
+    pub current_note: String,
+    pub focus: ConsoleFocus,
+}
+
+pub fn console_is_active(state: Res<ConsoleState>) -> bool {
+    state.active
+}
+
+pub fn console_is_inactive(state: Res<ConsoleState>) -> bool {
+    !state.active
 }
 
 #[derive(Component)]
@@ -384,10 +392,6 @@ fn handle_star_clicked_event(
     q_children: Query<&Children>,
     q_transform: Query<&Transform>,
 ) {
-    if state.active {
-        return;
-    }
-
     // Check for Event OR Enter Key
     let mut target_cell = None;
     let mut target_entity = None;
@@ -506,6 +510,10 @@ fn console_input_system(
                 name: format!("JUMPING TO {:?}", spawn_btn.0),
             });
             state.active = false;
+            // Clear inputs for next time
+            state.current_name.clear();
+            state.current_note.clear();
+            
             if let Ok(mut vis) = q_overlay.get_single_mut() {
                 *vis = Visibility::Hidden;
             }
@@ -513,12 +521,6 @@ fn console_input_system(
             return;
         }
     }
-
-    if !state.active {
-        return;
-    }
-
-    // 1. Handle Control Keys
     if keys.just_pressed(KeyCode::Escape) {
         state.active = false;
         state.target_entity = None; // Clear target on close to prevent stale data
@@ -547,6 +549,8 @@ fn console_input_system(
                     save_events.send(SystemSavedEvent {
                         name: format!("JUMPING TO {:?}", star_type),
                     });
+                    state.current_name.clear();
+                    state.current_note.clear();
                     state.active = false;
                     if let Ok(mut vis) = q_overlay.get_single_mut() {
                         *vis = Visibility::Hidden;
@@ -586,6 +590,8 @@ fn console_input_system(
             }
         }
 
+        state.current_name.clear();
+        state.current_note.clear();
         state.active = false;
         state.target_entity = None; // Clear target on save too
         if let Ok(mut vis) = q_overlay.get_single_mut() {

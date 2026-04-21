@@ -16,7 +16,7 @@ impl Plugin for RecorderPlugin {
             .add_systems(
                 Update,
                 (
-                    toggle_recording,
+                    toggle_recording.run_if(crate::player::interaction::console_is_inactive),
                     capture_frame,
                     blink_indicator,
                     cleanup_recording_message,

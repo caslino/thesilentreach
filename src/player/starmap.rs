@@ -1,5 +1,4 @@
 use crate::persistence::{CurrentSystemData, Database};
-use crate::player::interaction::ConsoleState;
 use crate::universe::SystemSavedEvent;
 use bevy::prelude::*;
 
@@ -8,7 +7,13 @@ pub struct StarMapPlugin;
 impl Plugin for StarMapPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_starmap)
-            .add_systems(Update, (toggle_starmap, update_starmap_content));
+            .add_systems(
+                Update,
+                (
+                    toggle_starmap.run_if(crate::player::interaction::console_is_inactive),
+                    update_starmap_content,
+                ),
+            );
     }
 }
 
@@ -87,12 +92,7 @@ fn toggle_starmap(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     mut q_root: Query<(Entity, &mut Visibility), With<StarMapRoot>>,
-    console_state: Res<ConsoleState>,
 ) {
-    if console_state.active {
-        return;
-    }
-
     if keys.just_pressed(KeyCode::KeyM) {
         if let Ok((entity, mut vis)) = q_root.get_single_mut() {
             *vis = match *vis {

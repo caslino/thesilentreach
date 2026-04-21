@@ -9,7 +9,13 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_hud)
-            .add_systems(Update, (update_hud, system_saved_toast_system));
+            .add_systems(
+                Update,
+                (
+                    update_hud.run_if(crate::player::interaction::console_is_inactive),
+                    system_saved_toast_system,
+                ),
+            );
     }
 }
 
