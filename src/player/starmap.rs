@@ -70,6 +70,7 @@ fn setup_starmap(mut commands: Commands) {
                 BorderColor(Color::srgba(0.3, 0.3, 0.5, 0.5)),
                 BackgroundColor(Color::BLACK),
                 StarMapContent,
+                Visibility::default(),
             ));
 
             // Instructions
@@ -94,7 +95,7 @@ fn toggle_starmap(
     mut q_root: Query<(Entity, &mut Visibility), With<StarMapRoot>>,
 ) {
     if keys.just_pressed(KeyCode::KeyM) {
-        if let Ok((entity, mut vis)) = q_root.get_single_mut() {
+        if let Ok((entity, mut vis)) = q_root.single_mut() {
             *vis = match *vis {
                 Visibility::Hidden => {
                     commands.entity(entity).insert(StarMapDirty);

@@ -541,7 +541,7 @@ impl Plugin for UniversePlugin {
 }
 
 pub fn setup_universe(mut commands: Commands) {
-    commands.spawn(big_space::prelude::BigSpaceRootBundle::default());
+    commands.spawn((big_space::prelude::BigSpaceRootBundle::default(), Visibility::default()));
 }
 
 pub const SECTOR_SIZE: i64 = 10;

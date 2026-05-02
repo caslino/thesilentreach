@@ -100,7 +100,7 @@ fn update_warp_intensity(
         // Threshold: 95% of max speed
         let threshold_speed = max_speed * 0.95;
 
-        let mut current_timer = 0.0;
+        let current_timer;
 
         if speed > threshold_speed {
             if let Some(ref mut timer) = timer_opt {

@@ -110,13 +110,13 @@
     "warp_intensity": 0.15,
     "plasma_speed": 0.1,
     "hot_spot_intensity": 1.2,
-    "corona_intensity": 0.8,
-    "rim_power": 6.0,
-    "intensity": 1.0,
+    "corona_intensity": 0.5,
+    "rim_power": 3.0,
+    "intensity": 0.85,
     "flare_scale": 65.0,
     "flare_speed": 0.1,
     "flare_intensity": 6.5,
-    "flare_height": 0.2,
+    "flare_height": 0.1,
     "flare_mode": 0,
     "flare_enabled": true,
     "flare_bias": 0,
@@ -224,7 +224,7 @@
     "flare_mode": 2,
     "flare_enabled": true,
     "flare_bias": 1,
-    "size_multiplier": 0.05
+    "size_multiplier": 0.1
   },
   "BlackHole": {
     "_info": "Singularity. Note: Flare_enabled false to prevent visual artifacts on the event horizon.",

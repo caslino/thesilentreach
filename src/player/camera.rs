@@ -66,7 +66,7 @@ fn setup_camera(
     mut spawn_loc: ResMut<SpawnLocation>,
     mut vehicle_input: ResMut<VehicleInput>,
 ) {
-    let big_space_id = q_big_space.single();
+    let big_space_id = q_big_space.single().expect("BigSpace not found");
 
     // Generate Spawn if not set
     if !spawn_loc.has_spawned {
@@ -88,7 +88,7 @@ fn setup_camera(
         );
     }
 
-    commands.entity(big_space_id.expect("BigSpace not found")).with_children(|parent| {
+    commands.entity(big_space_id).with_children(|parent| {
         // --- 1. SHIP ROOT (Movement/Collision) ---
         parent
             .spawn((
@@ -125,6 +125,7 @@ fn setup_camera(
                         ..default()
                     }),
                     Transform::default(),
+                    Visibility::default(),
                 ));
             });
     });

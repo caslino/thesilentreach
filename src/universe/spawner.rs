@@ -189,7 +189,7 @@ fn sync_planet_presets(
 }
 
 #[derive(Component)]
-pub struct TextureBakeTask(Task<Vec<u8>>);
+pub struct TextureBakeTask(#[allow(dead_code)] Task<Vec<u8>>);
 
 #[derive(Resource)]
 pub struct CommonMeshes {
@@ -564,6 +564,7 @@ fn sync_universe_view(
                                     index: sector_idx,
                                     seed: seed.0 as u32,
                                 },
+                                Visibility::default(),
                             ))
                             .id();
                         commands.entity(big_space_entity).add_child(entity);
@@ -753,10 +754,13 @@ fn spawn_star_with_data(
     }
 
     let system_root = commands
-        .spawn(big_space::prelude::BigSpatialBundle {
-            cell,
-            ..default()
-        })
+        .spawn((
+            big_space::prelude::BigSpatialBundle {
+                cell,
+                ..default()
+            },
+            Visibility::default(),
+        ))
         .id();
     spawned_entities.push(system_root);
 

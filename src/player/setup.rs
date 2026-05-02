@@ -111,7 +111,7 @@ fn welcome_input_system(
     mut q_text: Query<&mut Text, With<WelcomeInputText>>,
     mut time: ResMut<Time<Virtual>>,
 ) {
-    let mut overlay_vis = q_overlay.single_mut().expect("Overlay root not found");
+    let Ok(mut overlay_vis) = q_overlay.single_mut() else { return; };
     if *overlay_vis == Visibility::Hidden {
         return;
     }

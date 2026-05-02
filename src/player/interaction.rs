@@ -103,11 +103,11 @@ fn setup_console_ui(mut commands: Commands) {
         .with_children(|parent| {
             // Main Container (Horizontal)
             parent
-                .spawn(Node {
+                .spawn((Node {
                     flex_direction: FlexDirection::Row,
                     align_items: AlignItems::FlexStart,
                     ..default()
-                })
+                }, Visibility::default()))
                 .with_children(|main_row| {
                     // LEFT PANEL: REGISTRY
                     main_row
@@ -124,6 +124,7 @@ fn setup_console_ui(mut commands: Commands) {
                             BorderColor(Color::WHITE),
                             BackgroundColor(Color::srgb(0.05, 0.05, 0.05)),
                             RegistryPanel,
+                            Visibility::default(),
                         ))
                         .with_children(|panel| {
                             // Header
@@ -139,7 +140,7 @@ fn setup_console_ui(mut commands: Commands) {
                             panel.spawn((Node {
                                 height: Val::Px(20.0),
                                 ..default()
-                            },));
+                            }, Visibility::default()));
 
                             // Name Label
                             panel.spawn((
@@ -267,7 +268,7 @@ fn setup_console_ui(mut commands: Commands) {
                             panel.spawn((Node {
                                 height: Val::Px(20.0),
                                 ..default()
-                            },));
+                            }, Visibility::default()));
 
                             // Footer
                             panel.spawn((
@@ -293,6 +294,7 @@ fn setup_console_ui(mut commands: Commands) {
                             },
                             BorderColor(Color::srgb(0.0, 0.6, 1.0)), // Blue Border
                             BackgroundColor(Color::srgb(0.05, 0.05, 0.1)),
+                            Visibility::default(),
                         ))
                         .with_children(|panel| {
                             panel.spawn((
@@ -307,7 +309,7 @@ fn setup_console_ui(mut commands: Commands) {
                             panel.spawn((Node {
                                 height: Val::Px(15.0),
                                 ..default()
-                            },));
+                            }, Visibility::default()));
 
                             panel.spawn((
                                 Text::new("Select Destination:"),
@@ -364,7 +366,7 @@ fn setup_console_ui(mut commands: Commands) {
                             panel.spawn((Node {
                                 height: Val::Px(20.0),
                                 ..default()
-                            },));
+                            }, Visibility::default()));
 
                             panel.spawn((
                                 Text::new("Type '/spawn <type>'\nin registry name field"),
@@ -404,7 +406,7 @@ fn handle_star_clicked_event(
 
     // 2. Enter Key (Smart Context)
     if target_cell.is_none() && keys.just_pressed(KeyCode::Enter) {
-        if let Ok((cell, player_tf)) = q_player.get_single() {
+        if let Ok((cell, player_tf)) = q_player.single() {
             target_cell = Some(*cell);
 
             // Find Nearest Entity in this cell
@@ -750,7 +752,7 @@ fn console_input_system(
             // Wait, my spawner puts SystemLabel on the Text2d child OF the star/planet.
             // So if `e` is the Star/Planet, we need to find its children with SystemLabel.
 
-            let mut found_name = "Unknown Object".to_string();
+            let found_name;
             if let Ok(children) = q_children.get(e) {
                 for child in children {
                     if let Ok(_label) = q_system_label.get(*child) {

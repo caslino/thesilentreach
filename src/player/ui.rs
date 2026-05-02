@@ -61,6 +61,7 @@ fn setup_hud(mut commands: Commands) {
                 ..default()
             },
             HudRoot,
+            Visibility::default(),
         ))
         .with_children(|parent| {
             // Throttle Indicator
@@ -143,6 +144,7 @@ fn setup_hud(mut commands: Commands) {
         },
         FpsText,
         HudRoot,
+        Visibility::default(),
     ));
 
     // Saved Toast
@@ -203,18 +205,18 @@ fn update_hud(
     }
 
     // Update Text Content
-    if let Ok(mut text) = text_queries.p0().get_single_mut() {
+    if let Ok(mut text) = text_queries.p0().single_mut() {
         text.0 = format!("Throttle: {:.0}%", input.throttle * 100.0);
     }
 
-    if let Ok(velocity) = q_velocity.get_single() {
-        if let Ok(mut text) = text_queries.p1().get_single_mut() {
+    if let Ok(velocity) = q_velocity.single() {
+        if let Ok(mut text) = text_queries.p1().single_mut() {
             let speed = velocity.0.length();
             text.0 = format!("Speed: {:.0} m/s", speed);
         }
     }
 
-    if let Ok(mut text) = text_queries.p4().get_single_mut() {
+    if let Ok(mut text) = text_queries.p4().single_mut() {
         if input.warp_mode {
             text.0 = "WARP: ON".to_string();
         } else {
@@ -223,7 +225,7 @@ fn update_hud(
     }
 
     // Toggle Warning Display
-    if let Ok(mut node) = q_warning_node.get_single_mut() {
+    if let Ok(mut node) = q_warning_node.single_mut() {
         if acs.is_active {
             node.display = Display::Flex;
         } else {
@@ -236,10 +238,10 @@ fn update_hud(
         *nav_visible = !*nav_visible;
     }
 
-    if let Ok(mut node) = q_nav_node.get_single_mut() {
+    if let Ok(mut node) = q_nav_node.single_mut() {
         if *nav_visible {
             node.display = Display::Flex;
-            if let Ok(mut text) = text_queries.p2().get_single_mut() {
+            if let Ok(mut text) = text_queries.p2().single_mut() {
                 let age = time.elapsed_secs();
                 if age < 5.0 {
                     text.0 = format!(
@@ -274,7 +276,7 @@ fn update_hud(
     }
 
     // Update FPS
-    if let Ok(mut text) = text_queries.p3().get_single_mut() {
+    if let Ok(mut text) = text_queries.p3().single_mut() {
         if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
             if let Some(value) = fps.smoothed() {
                 text.0 = format!("FPS: {:.0}", value);
@@ -289,7 +291,7 @@ fn system_saved_toast_system(
     mut q_toast: Query<(&mut Visibility, &mut SavedToastText, &mut Text)>,
     time: Res<Time>,
 ) {
-    if let Ok((mut vis, mut toast, mut text)) = q_toast.get_single_mut() {
+    if let Ok((mut vis, mut toast, mut text)) = q_toast.single_mut() {
         // Trigger
         for ev in events.read() {
             *vis = Visibility::Visible;

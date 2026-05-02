@@ -256,7 +256,7 @@ impl FromWorld for OrbitRenderPipeline {
 use bevy::core_pipeline::core_3d::Transparent3d;
 use bevy::pbr::{MeshPipeline, SetMeshViewBindGroup};
 use bevy::render::render_phase::{
-    DrawFunctions, PhaseItem, RenderCommand, RenderCommandResult, SetItemPipeline,
+    DrawFunctions, RenderCommand, RenderCommandResult, SetItemPipeline,
     TrackedRenderPass,
 };
 
