@@ -12,6 +12,7 @@ pub mod interaction;
 pub mod label_update;
 pub mod starmap;
 pub mod setup;
+pub mod soft_keyboard;
 
 pub struct PlayerPlugin;
 

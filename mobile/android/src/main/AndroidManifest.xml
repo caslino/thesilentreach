@@ -3,9 +3,8 @@
     package="com.cognitedata.thesilentreach">
     
     <application
-        android:label="The Silent Reach"
-        android:hasCode="false">
-        <activity android:name="android.app.NativeActivity"
+        android:label="The Silent Reach">
+        <activity android:name="com.google.androidgamesdk.GameActivity"
             android:label="The Silent Reach"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"

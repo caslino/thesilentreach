@@ -4173,6 +4173,8 @@ dependencies = [
  "dirs",
  "futures-lite",
  "image",
+ "jni",
+ "ndk-context",
  "rand",
  "ron",
  "rusqlite",

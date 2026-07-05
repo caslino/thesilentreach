@@ -335,7 +335,34 @@ impl Database {
         }
     }
 
+    #[cfg(target_os = "android")]
+    fn get_android_files_dir() -> Option<PathBuf> {
+        use jni::JavaVM;
+        use jni::objects::{JObject, JString};
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
+        let mut env = vm.attach_current_thread().ok()?;
+
+        let context = unsafe { JObject::from_raw(ctx.context() as jni::sys::jobject) };
+        let files_dir = env.call_method(&context, "getFilesDir", "()Ljava/io/File;", &[]).ok()?.l().ok()?;
+        let path_jstr = env.call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[]).ok()?.l().ok()?;
+
+        let jstr = JString::from(path_jstr);
+        let path_str: String = env.get_string(&jstr).ok()?.into();
+
+        Some(PathBuf::from(path_str))
+    }
+
     fn get_db_path() -> PathBuf {
+        #[cfg(target_os = "android")]
+        {
+            if let Some(dir) = Self::get_android_files_dir() {
+                let _ = fs::create_dir_all(&dir);
+                return dir.join("universe.db");
+            }
+        }
+
         // In mobile, we might need different logic, but for desktop/bundled:
         if let Some(data_dir) = dirs::data_dir() {
             let path = data_dir.join("com.cognitedata.thesilentreach");

@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-
+use bevy::prelude::*;
 pub mod effects;
 pub mod universe;
 pub mod persistence;
@@ -29,6 +29,7 @@ pub fn get_asset_root() -> PathBuf {
 }
 
 /// Main app entry point — called by both desktop (gen/bin/desktop.rs) and mobile targets.
+#[bevy_main]
 pub fn main() {
     use bevy::prelude::*;
     use bevy::render::renderer::RenderAdapter;
@@ -110,8 +111,8 @@ pub fn main() {
         None
     };
 
-    App::new()
-        .insert_resource(RenderConfig { mode: render_mode })
+    let mut app = App::new();
+    app.insert_resource(RenderConfig { mode: render_mode })
         .insert_resource(recorder::RecordingDirectory(output_dir))
         .insert_resource(recorder::RecordingBlinkDuration(blink_duration))
         .add_plugins(
@@ -141,14 +142,12 @@ pub fn main() {
             star_override,
             planet_override,
         })
-        .add_plugins(
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            recorder::RecorderPlugin,
-            #[cfg(any(target_os = "android", target_os = "ios"))]
-            bevy::app::PanicHandlerPlugin,
-        )
-        .add_systems(Startup, check_gpu)
-        .run();
+        .add_systems(Startup, check_gpu);
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    app.add_plugins(recorder::RecorderPlugin);
+
+    app.run();
 }
 
 fn check_gpu(adapter: bevy::prelude::Res<bevy::render::renderer::RenderAdapter>) {
@@ -161,9 +160,4 @@ fn check_gpu(adapter: bevy::prelude::Res<bevy::render::renderer::RenderAdapter>)
     bevy::prelude::info!("---------------------SYSTEM INFO-----------------------------");
 }
 
-// Mobile Entry Points
-#[cfg(any(target_os = "android", target_os = "ios"))]
-#[unsafe(no_mangle)]
-pub extern "C" fn start_app() {
-    main();
-}
+// Mobile Entry Points handled by #[bevy_main]

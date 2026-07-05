@@ -110,6 +110,7 @@ fn welcome_input_system(
     mut q_overlay: Query<&mut Visibility, With<WelcomeOverlayRoot>>,
     mut q_text: Query<&mut Text, With<WelcomeInputText>>,
     mut time: ResMut<Time<Virtual>>,
+    touches: Res<Touches>,
 ) {
     let Ok(mut overlay_vis) = q_overlay.single_mut() else { return; };
     if *overlay_vis == Visibility::Hidden {
@@ -118,6 +119,14 @@ fn welcome_input_system(
 
     // Pause physics while naming
     time.pause();
+
+    // Trigger keyboard show on Android
+    super::soft_keyboard::show_keyboard();
+
+    // If tapped/touched, show keyboard again in case it got closed/dismissed by user
+    if touches.any_just_pressed() {
+        super::soft_keyboard::show_keyboard();
+    }
 
     if keys.just_pressed(KeyCode::Enter) && !setup_state.input_name.trim().is_empty() {
         let final_name = setup_state.input_name.trim().to_string();
@@ -130,6 +139,7 @@ fn welcome_input_system(
             info!("PLAYER SETUP: Identity confirmed as {}.", player_name.0);
             *overlay_vis = Visibility::Hidden;
             time.unpause();
+            super::soft_keyboard::hide_keyboard();
         }
     }
 

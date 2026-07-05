@@ -18,6 +18,7 @@ impl Plugin for SystemConsolePlugin {
                 Update,
                 (
                     console_input_system.run_if(console_is_active),
+                    console_touch_system.run_if(console_is_active),
                     handle_star_clicked_event.run_if(console_is_inactive),
                     teleport_to_origin_system.run_if(console_is_inactive),
                     handle_spawn_command_event,
@@ -25,6 +26,12 @@ impl Plugin for SystemConsolePlugin {
                     .chain(),
             )
             .add_event::<SpawnCommandEvent>(); // Chained to prevent input conflict
+    }
+}
+
+fn console_touch_system(touches: Res<Touches>) {
+    if touches.any_just_pressed() {
+        super::soft_keyboard::show_keyboard();
     }
 }
 
@@ -464,6 +471,9 @@ fn handle_star_clicked_event(
 
         // PAUSE
         time.pause();
+
+        // Trigger mobile soft keyboard
+        super::soft_keyboard::show_keyboard();
     } else if keys.just_pressed(KeyCode::KeyK) {
         // OPEN GENERAL OVERLAY (SPAWN MODE)
         state.active = true;
@@ -476,6 +486,9 @@ fn handle_star_clicked_event(
             *vis = Visibility::Visible;
         }
         time.pause();
+
+        // Trigger mobile soft keyboard
+        super::soft_keyboard::show_keyboard();
     }
 }
 
@@ -504,6 +517,7 @@ fn console_input_system(
     player_name: Res<PlayerName>,
     mut q_buttons: Query<(&Interaction, &SpawnTypeButton), Changed<Interaction>>,
 ) {
+
     // A. Handle Button Interactions (Even if console not fully 'active' in registry mode)
     for (interaction, spawn_btn) in q_buttons.iter_mut() {
         if *interaction == Interaction::Pressed {
@@ -520,6 +534,7 @@ fn console_input_system(
                 *vis = Visibility::Hidden;
             }
             time.unpause();
+            super::soft_keyboard::hide_keyboard();
             return;
         }
     }
@@ -530,6 +545,7 @@ fn console_input_system(
             *vis = Visibility::Hidden;
         }
         time.unpause();
+        super::soft_keyboard::hide_keyboard();
         return;
     }
 
@@ -558,6 +574,7 @@ fn console_input_system(
                         *vis = Visibility::Hidden;
                     }
                     time.unpause();
+                    super::soft_keyboard::hide_keyboard();
                     return;
                 }
             }
@@ -600,6 +617,7 @@ fn console_input_system(
             *vis = Visibility::Hidden;
         }
         time.unpause();
+        super::soft_keyboard::hide_keyboard();
         return;
     }
 
